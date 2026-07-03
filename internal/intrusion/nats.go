@@ -1,0 +1,40 @@
+package intrusion
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+
+	"github.com/nats-io/nats.go"
+)
+
+type EventPublisher interface {
+	PublishAlarmTriggered(ctx context.Context, payload interface{}) error
+	Close()
+}
+
+type natsPublisher struct {
+	nc *nats.Conn
+}
+
+func NewNatsPublisher(natsURL string) (EventPublisher, error) {
+	nc, err := nats.Connect(natsURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to NATS at %s: %w", natsURL, err)
+	}
+	return &natsPublisher{nc: nc}, nil
+}
+
+func (p *natsPublisher) PublishAlarmTriggered(ctx context.Context, payload interface{}) error {
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal alarm.triggered event: %w", err)
+	}
+	return p.nc.Publish("alarm.triggered", data)
+}
+
+func (p *natsPublisher) Close() {
+	if p.nc != nil {
+		p.nc.Close()
+	}
+}

@@ -1,0 +1,64 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wardis-video
+  namespace: wardis
+  labels:
+    app: wardis-video
+    component: microservice
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: wardis-video
+  template:
+    metadata:
+      labels:
+        app: wardis-video
+        component: microservice
+    spec:
+      containers:
+        - name: wardis-video
+          image: wardis-server:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+              name: http
+          envFrom:
+            - configMapRef:
+                name: wardis-config
+            - secretRef:
+                name: wardis-secrets
+          livenessProbe:
+            tcpSocket:
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            tcpSocket:
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: wardis-video-svc
+  namespace: wardis
+  labels:
+    app: wardis-video
+spec:
+  ports:
+    - port: 8080
+      targetPort: 8080
+      name: http
+  selector:
+    app: wardis-video
+  type: ClusterIP

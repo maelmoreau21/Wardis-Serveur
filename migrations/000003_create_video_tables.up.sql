@@ -1,0 +1,10 @@
+-- Up Migration
+
+CREATE TABLE IF NOT EXISTS cameras (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    nom VARCHAR(255) NOT NULL,
+    url_rtsp VARCHAR(255) NOT NULL,
+    site_id UUID REFERENCES sites(id) ON DELETE CASCADE,
+    statut VARCHAR(50) NOT NULL DEFAULT 'active',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);

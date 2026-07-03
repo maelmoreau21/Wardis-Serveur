@@ -1,0 +1,91 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wardis-mediamtx
+  namespace: wardis
+  labels:
+    app: wardis-mediamtx
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: wardis-mediamtx
+  template:
+    metadata:
+      labels:
+        app: wardis-mediamtx
+    spec:
+      containers:
+        - name: mediamtx
+          image: bluenviron/mediamtx:1.9.0-alpine
+          ports:
+            - containerPort: 8554
+              name: rtsp
+            - containerPort: 1935
+              name: rtmp
+            - containerPort: 8888
+              name: hls
+            - containerPort: 8889
+              name: webrtc
+            - containerPort: 9997
+              name: api
+          env:
+            - name: MTX_API
+              value: "yes"
+            - name: MTX_APIADDRESS
+              value: ":9997"
+            - name: MTX_WEBRTC
+              value: "yes"
+            - name: MTX_WEBRTCADDRESS
+              value: ":8889"
+            - name: MTX_AUTHMETHOD
+              value: "http"
+            - name: MTX_AUTHHTTPADDRESS
+              value: "http://wardis-video-svc:8080/cameras/auth"
+          livenessProbe:
+            httpGet:
+              path: /v3/config
+              port: 9997
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /v3/config
+              port: 9997
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          resources:
+            limits:
+              cpu: "1"
+              memory: "1Gi"
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: wardis-mediamtx-svc
+  namespace: wardis
+  labels:
+    app: wardis-mediamtx
+spec:
+  ports:
+    - port: 8554
+      targetPort: 8554
+      name: rtsp
+    - port: 1935
+      targetPort: 1935
+      name: rtmp
+    - port: 8888
+      targetPort: 8888
+      name: hls
+    - port: 8889
+      targetPort: 8889
+      name: webrtc
+    - port: 9997
+      targetPort: 9997
+      name: api
+  selector:
+    app: wardis-mediamtx
+  type: ClusterIP

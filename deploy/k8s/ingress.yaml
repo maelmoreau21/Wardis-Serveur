@@ -1,0 +1,100 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: wardis-api-gateway
+  namespace: wardis
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    nginx.ingress.kubernetes.io/use-regex: "true"
+spec:
+  rules:
+    - host: api.wardis.local
+      http:
+        paths:
+          # --- Auth Routes ---
+          - path: /login
+            pathType: Exact
+            backend:
+              service:
+                name: wardis-auth-svc
+                port:
+                  number: 8080
+          - path: /logout
+            pathType: Exact
+            backend:
+              service:
+                name: wardis-auth-svc
+                port:
+                  number: 8080
+          - path: /me
+            pathType: Exact
+            backend:
+              service:
+                name: wardis-auth-svc
+                port:
+                  number: 8080
+
+          # --- Access Control Routes ---
+          - path: /doors
+            pathType: Prefix
+            backend:
+              service:
+                name: wardis-access-control-svc
+                port:
+                  number: 8080
+          - path: /badges
+            pathType: Prefix
+            backend:
+              service:
+                name: wardis-access-control-svc
+                port:
+                  number: 8080
+          - path: /access-logs
+            pathType: Prefix
+            backend:
+              service:
+                name: wardis-access-control-svc
+                port:
+                  number: 8080
+
+          # --- Video Routes ---
+          - path: /cameras
+            pathType: Prefix
+            backend:
+              service:
+                name: wardis-video-svc
+                port:
+                  number: 8080
+
+          # --- Intrusion Routes ---
+          - path: /zones
+            pathType: Prefix
+            backend:
+              service:
+                name: wardis-intrusion-svc
+                port:
+                  number: 8080
+          - path: /capteurs
+            pathType: Prefix
+            backend:
+              service:
+                name: wardis-intrusion-svc
+                port:
+                  number: 8080
+          - path: /alarmes
+            pathType: Prefix
+            backend:
+              service:
+                name: wardis-intrusion-svc
+                port:
+                  number: 8080
+
+          # --- Events Routes ---
+          - path: /events
+            pathType: Prefix
+            backend:
+              service:
+                name: wardis-events-svc
+                port:
+                  number: 8080

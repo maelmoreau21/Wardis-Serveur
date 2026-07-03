@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: wardis-config
+  namespace: wardis
+data:
+  ENV: "production"
+  PORT: "8080"
+  COOKIE_SECURE: "true"
+  JWT_EXPIRY: "24h"
+  NATS_URL: "nats://wardis-nats-svc:4222"
+  MEDIAMTX_API_URL: "http://wardis-mediamtx-svc:9997"

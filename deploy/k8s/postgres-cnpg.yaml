@@ -1,0 +1,38 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: postgres-user-creds
+  namespace: wardis
+type: Opaque
+data:
+  # Value: wardis_user
+  username: d2FyZGlzX3VzZXI=
+  # Value: wardispassword123
+  password: d2FyZGlzcGFzc3dvcmQxMjM=
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: wardis-postgres
+  namespace: wardis
+spec:
+  instances: 3
+
+  # Use PostgreSQL 16 image supported by CloudNativePG
+  imageName: ghcr.io/cloudnative-pg/postgresql:16
+
+  # Write-ahead log and database storage settings
+  storage:
+    size: 5Gi
+
+  # Bootstrap database and user credentials
+  bootstrap:
+    initdb:
+      database: wardis_db
+      owner: wardis_user
+      secret:
+        name: postgres-user-creds
+
+  # Configure monitoring/management parameters
+  monitoring:
+    enablePodMonitor: false
