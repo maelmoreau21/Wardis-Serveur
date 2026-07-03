@@ -1,25 +1,34 @@
 package auth
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"time"
 
 	"go.uber.org/zap"
+
+	"wardis-server/internal/validation"
 )
+
+type AuditLogger interface {
+	Log(ctx context.Context, r *http.Request, action string, resource string, resourceID string, status string, details map[string]interface{})
+}
 
 type Handler struct {
 	service      Service
 	log          *zap.Logger
 	cookieSecure bool
+	audit        AuditLogger
 }
 
-func NewHandler(service Service, log *zap.Logger, cookieSecure bool) *Handler {
+func NewHandler(service Service, log *zap.Logger, cookieSecure bool, audit AuditLogger) *Handler {
 	return &Handler{
 		service:      service,
 		log:          log,
 		cookieSecure: cookieSecure,
+		audit:        audit,
 	}
 }
 
@@ -30,17 +39,26 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Email == "" || req.Password == "" {
-		h.respondWithError(w, http.StatusBadRequest, "email and password are required")
+	// Strict email and password validation
+	if !validation.IsEmail(req.Email) {
+		h.audit.Log(r.Context(), r, "login", "auth", "", "failed", map[string]interface{}{"email": req.Email, "reason": "invalid email format"})
+		h.respondWithError(w, http.StatusBadRequest, "invalid email format")
+		return
+	}
+	if req.Password == "" || len(req.Password) < 6 || len(req.Password) > 100 {
+		h.audit.Log(r.Context(), r, "login", "auth", "", "failed", map[string]interface{}{"email": req.Email, "reason": "invalid password length"})
+		h.respondWithError(w, http.StatusBadRequest, "invalid password length")
 		return
 	}
 
 	resp, err := h.service.Login(r.Context(), req.Email, req.Password)
 	if err != nil {
 		if errors.Is(err, ErrInvalidCredentials) {
+			h.audit.Log(r.Context(), r, "login", "auth", "", "failed", map[string]interface{}{"email": req.Email, "reason": "invalid credentials"})
 			h.respondWithError(w, http.StatusUnauthorized, "invalid email or password")
 			return
 		}
+		h.audit.Log(r.Context(), r, "login", "auth", "", "failed", map[string]interface{}{"email": req.Email, "reason": "internal server error"})
 		h.log.Error("login error", zap.Error(err))
 		h.respondWithError(w, http.StatusInternalServerError, "internal server error")
 		return
@@ -57,10 +75,17 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		SameSite: http.SameSiteLaxMode,
 	})
 
+	h.audit.Log(r.Context(), r, "login", "auth", req.Email, "success", nil)
 	h.respondWithJSON(w, http.StatusOK, resp)
 }
 
 func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
+	// Log logout before clearing context/cookie if claims exist
+	var userEmail string
+	if claims, ok := UserClaimsFromContext(r.Context()); ok {
+		userEmail = claims.Email
+	}
+
 	// Clear cookie
 	http.SetCookie(w, &http.Cookie{
 		Name:     "token",
@@ -73,6 +98,7 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 		MaxAge:   -1,
 	})
 
+	h.audit.Log(r.Context(), r, "logout", "auth", userEmail, "success", nil)
 	h.respondWithJSON(w, http.StatusOK, map[string]string{"message": "successfully logged out"})
 }
 

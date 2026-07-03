@@ -6,12 +6,12 @@ ALTER TABLE cameras ADD COLUMN zone_id UUID REFERENCES zones(id) ON DELETE SET N
 
 -- 2. Link the default "Main Entrance" door to the default "Zone Entrée"
 UPDATE doors 
-SET zone_id = 'z0000000-0000-0000-0000-000000000001' 
+SET zone_id = 'e0000000-0000-0000-0000-000000000001' 
 WHERE id = 'd0000000-0000-0000-0000-000000000001';
 
 -- 3. Seed a default camera watching the Main Entrance area
 INSERT INTO cameras (id, nom, url_rtsp, site_id, zone_id, statut)
-VALUES ('cam00000-0000-0000-0000-000000000001', 'Caméra Entrée', 'rtsp://localhost:8554/cam00000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000001', 'z0000000-0000-0000-0000-000000000001', 'active')
+VALUES ('ca000000-0000-0000-0000-000000000001', 'Caméra Entrée', 'rtsp://localhost:8554/ca000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000001', 'e0000000-0000-0000-0000-000000000001', 'active')
 ON CONFLICT (id) DO NOTHING;
 
 -- 4. Create the events_log table to store correlated events

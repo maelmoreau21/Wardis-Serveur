@@ -18,13 +18,16 @@ import (
 	"go.uber.org/zap"
 
 	"wardis-server/internal/accesscontrol"
+	"wardis-server/internal/audit"
 	"wardis-server/internal/auth"
 	"wardis-server/internal/config"
 	"wardis-server/internal/database"
+	"wardis-server/internal/events"
+	"wardis-server/internal/health"
 	"wardis-server/internal/intrusion"
 	"wardis-server/internal/logger"
+	"wardis-server/internal/ratelimit"
 	"wardis-server/internal/video"
-	"wardis-server/internal/events"
 )
 
 func main() {
@@ -76,26 +79,36 @@ func main() {
 	}
 	defer intrusionNatsPub.Close()
 
+	// 4d. Initialize Audit Logger
+	auditLogger := audit.New(dbPool, log)
+
+	// 4e. Initialize Rate Limiter
+	loginRateLimiter := ratelimit.New(cfg.LoginRateLimitRate, cfg.LoginRateLimitBurst)
+	defer loginRateLimiter.Close()
+
+	// 4f. Initialize Health Handler
+	healthHandler := health.NewHandler(dbPool, cfg.NatsURL)
+
 	// 5. Initialize Auth Components
 	authRepo := auth.NewRepository(dbPool)
 	authService := auth.NewService(authRepo, cfg.JWTSecret, cfg.JWTExpiry)
-	authHandler := auth.NewHandler(authService, log, cfg.CookieSecure)
+	authHandler := auth.NewHandler(authService, log, cfg.CookieSecure, auditLogger)
 
 	// 5b. Initialize Access Control Components
 	acRepo := accesscontrol.NewRepository(dbPool)
 	acService := accesscontrol.NewService(acRepo, natsPub, log)
-	acHandler := accesscontrol.NewHandler(acService, log)
+	acHandler := accesscontrol.NewHandler(acService, log, auditLogger)
 
 	// 5c. Initialize Video Components
 	videoRepo := video.NewRepository(dbPool)
 	videoMtxClient := video.NewMediaMtxClient(cfg.MediaMtxAPIURL)
 	videoService := video.NewService(videoRepo, videoMtxClient, cfg.JWTSecret, log)
-	videoHandler := video.NewHandler(videoService, log)
+	videoHandler := video.NewHandler(videoService, log, auditLogger)
 
 	// 5d. Initialize Intrusion Components
 	intrusionRepo := intrusion.NewRepository(dbPool)
 	intrusionService := intrusion.NewService(intrusionRepo, intrusionNatsPub, log)
-	intrusionHandler := intrusion.NewHandler(intrusionService, log)
+	intrusionHandler := intrusion.NewHandler(intrusionService, log, auditLogger)
 
 	// 5e. Initialize Events Components
 	eventsRepo := events.NewRepository(dbPool)
@@ -138,10 +151,17 @@ func main() {
 		})
 	})
 
-	// Public Routes
-	r.Post("/login", authHandler.Login)
-	r.Post("/logout", authHandler.Logout)
-	r.Post("/cameras/auth", videoHandler.MediaMtxAuth)
+	// Health & Readiness Routes
+	r.Get("/health", healthHandler.Health)
+	r.Get("/ready", healthHandler.Ready)
+
+	// Public Routes (Rate limited)
+	r.Group(func(r chi.Router) {
+		r.Use(loginRateLimiter.Limit)
+		r.Post("/login", authHandler.Login)
+		r.Post("/logout", authHandler.Logout)
+		r.Post("/cameras/auth", videoHandler.MediaMtxAuth)
+	})
 
 	// Protected Routes
 	r.Group(func(r chi.Router) {

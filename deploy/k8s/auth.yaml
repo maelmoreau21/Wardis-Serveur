@@ -30,12 +30,14 @@ spec:
             - secretRef:
                 name: wardis-secrets
           livenessProbe:
-            tcpSocket:
+            httpGet:
+              path: /health
               port: 8080
             initialDelaySeconds: 15
             periodSeconds: 20
           readinessProbe:
-            tcpSocket:
+            httpGet:
+              path: /ready
               port: 8080
             initialDelaySeconds: 10
             periodSeconds: 10

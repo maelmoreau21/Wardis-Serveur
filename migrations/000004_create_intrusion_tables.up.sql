@@ -44,13 +44,13 @@ CREATE TABLE IF NOT EXISTS historique_alarmes (
 -- Seed some default zones and sensors
 INSERT INTO zones (id, nom, description, statut)
 VALUES 
-('z0000000-0000-0000-0000-000000000001', 'Zone Entrée', 'Zone couvrant l''entrée principale', 'desarme'),
-('z0000000-0000-0000-0000-000000000002', 'Zone Bureaux', 'Zone couvrant les bureaux du RDC', 'desarme')
+('e0000000-0000-0000-0000-000000000001', 'Zone Entrée', 'Zone couvrant l''entrée principale', 'desarme'),
+('e0000000-0000-0000-0000-000000000002', 'Zone Bureaux', 'Zone couvrant les bureaux du RDC', 'desarme')
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO capteurs (id, zone_id, nom, type, statut)
 VALUES
-('c0000000-0000-0000-0000-000000000001', 'z0000000-0000-0000-0000-000000000001', 'Capteur Porte Entrée', 'ouverture', 'ok'),
-('c0000000-0000-0000-0000-000000000002', 'z0000000-0000-0000-0000-000000000001', 'Détecteur Mouvement Hall', 'mouvement', 'ok'),
-('c0000000-0000-0000-0000-000000000003', 'z0000000-0000-0000-0000-000000000002', 'Détecteur Bureaux RDC', 'mouvement', 'ok')
+('c0000000-0000-0000-0000-000000000001', 'e0000000-0000-0000-0000-000000000001', 'Capteur Porte Entrée', 'ouverture', 'ok'),
+('c0000000-0000-0000-0000-000000000002', 'e0000000-0000-0000-0000-000000000001', 'Détecteur Mouvement Hall', 'mouvement', 'ok'),
+('c0000000-0000-0000-0000-000000000003', 'e0000000-0000-0000-0000-000000000002', 'Détecteur Bureaux RDC', 'mouvement', 'ok')
 ON CONFLICT (id) DO NOTHING;

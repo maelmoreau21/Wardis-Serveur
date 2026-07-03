@@ -8,14 +8,16 @@ import (
 )
 
 type Config struct {
-	Env          string        `mapstructure:"ENV"`
-	Port         string        `mapstructure:"PORT"`
-	DatabaseURL  string        `mapstructure:"DATABASE_URL"`
-	JWTSecret    string        `mapstructure:"JWT_SECRET"`
-	JWTExpiry    time.Duration `mapstructure:"JWT_EXPIRY"`
-	CookieSecure bool          `mapstructure:"COOKIE_SECURE"`
-	NatsURL      string        `mapstructure:"NATS_URL"`
-	MediaMtxAPIURL string      `mapstructure:"MEDIAMTX_API_URL"`
+	Env                 string        `mapstructure:"ENV"`
+	Port                string        `mapstructure:"PORT"`
+	DatabaseURL         string        `mapstructure:"DATABASE_URL"`
+	JWTSecret           string        `mapstructure:"JWT_SECRET"`
+	JWTExpiry           time.Duration `mapstructure:"JWT_EXPIRY"`
+	CookieSecure        bool          `mapstructure:"COOKIE_SECURE"`
+	NatsURL             string        `mapstructure:"NATS_URL"`
+	MediaMtxAPIURL      string        `mapstructure:"MEDIAMTX_API_URL"`
+	LoginRateLimitRate  float64       `mapstructure:"LOGIN_RATE_LIMIT_RATE"`
+	LoginRateLimitBurst float64       `mapstructure:"LOGIN_RATE_LIMIT_BURST"`
 }
 
 func Load() (*Config, error) {
@@ -27,6 +29,8 @@ func Load() (*Config, error) {
 	viper.SetDefault("COOKIE_SECURE", false)
 	viper.SetDefault("NATS_URL", "nats://localhost:4222")
 	viper.SetDefault("MEDIAMTX_API_URL", "http://localhost:9997")
+	viper.SetDefault("LOGIN_RATE_LIMIT_RATE", 0.1)
+	viper.SetDefault("LOGIN_RATE_LIMIT_BURST", 5.0)
 
 	// Read environment variables
 	viper.AutomaticEnv()

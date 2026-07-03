@@ -244,7 +244,7 @@ func (s *service) correlateVideoEvent(ctx context.Context, subject string, data 
 
 		return &CorrelatedEvent{
 			EventType: subject,
-			SourceID:  "video-event-raw",
+			SourceID:  "00000000-0000-0000-0000-000000000000",
 			Timestamp: time.Now(),
 			Details: CorrelationDetails{
 				Payload: rawMap,
@@ -252,10 +252,20 @@ func (s *service) correlateVideoEvent(ctx context.Context, subject string, data 
 		}, nil
 	}
 
+	sourceID := payload.CameraID
+	if len(sourceID) != 36 {
+		sourceID = "00000000-0000-0000-0000-000000000000"
+	}
+
+	var cameraIDPtr *string
+	if len(payload.CameraID) == 36 {
+		cameraIDPtr = &payload.CameraID
+	}
+
 	correlated := &CorrelatedEvent{
 		EventType: subject,
-		SourceID:  payload.CameraID,
-		CameraID:  &payload.CameraID,
+		SourceID:  sourceID,
+		CameraID:  cameraIDPtr,
 		Timestamp: payload.Timestamp,
 		Details: CorrelationDetails{
 			Payload: payload,
