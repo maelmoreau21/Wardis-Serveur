@@ -30,6 +30,8 @@ import (
 	"wardis-server/internal/video"
 )
 
+const serverVersion = "0.0.1"
+
 func main() {
 	// 1. Load configuration
 	cfg, err := config.Load()
@@ -44,7 +46,7 @@ func main() {
 	}
 	defer log.Sync()
 
-	log.Info("Starting Wardis Server...", zap.String("env", cfg.Env), zap.String("port", cfg.Port))
+	log.Info("Starting Wardis Server...", zap.String("env", cfg.Env), zap.String("port", cfg.Port), zap.String("version", serverVersion))
 
 	// 3. Run database migrations
 	log.Info("Running database migrations...")
@@ -78,7 +80,7 @@ func main() {
 		log.Fatal("failed to initialize Intrusion NATS publisher", zap.Error(err))
 	}
 	defer intrusionNatsPub.Close()
- 
+
 	// 4g. Initialize NATS connection for Video
 	log.Info("Connecting to NATS for Video...", zap.String("url", cfg.NatsURL))
 	videoNatsPub, err := video.NewNatsPublisher(cfg.NatsURL)
