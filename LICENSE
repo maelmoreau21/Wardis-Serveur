@@ -1,0 +1,32 @@
+CONTRAT DE LICENCE LOGICIELLE PROPRIÉTAIRE (SOURCE-AVAILABLE)
+
+Droit d'auteur (c) 2026 Maël Moreau. Tous droits réservés.
+
+Le présent document constitue un contrat de licence légal entre vous (ci-après "l'Utilisateur") et le titulaire exclusif des droits d'auteur (ci-après "l'Auteur", Maël Moreau) pour le logiciel Wardis (incluant le code source, les fichiers de configuration, les documentations et les binaires associés).
+
+En accédant au code source de ce dépôt public, en le téléchargeant ou en le dupliquant ("fork"), vous acceptez d'être lié par les termes de la présente licence.
+
+1. CONCESSION DE LICENCE DE CONSULTATION
+L'Auteur accorde à l'Utilisateur une licence mondiale, non exclusive et gratuite pour consulter, auditer, étudier et exécuter le logiciel uniquement dans un cadre strictement privé, éducatif ou à des fins de démonstration technique non lucrative.
+
+2. RESTRICTIONS COMMERCIALES ET EXPLOITATION
+Toute exploitation commerciale, directe ou indirecte, du logiciel ou de ses composants est STRICTEMENT INTERDITE à tout tiers autre que l'Auteur original (Maël Moreau). 
+Cela inclut, sans s'y limiter :
+- La vente, la location, la sous-licence ou la distribution payante du logiciel ou de parties dérivées de celui-ci.
+- L'utilisation du logiciel pour fournir un service commercial ou payant (de type SaaS, VMS hébergé ou infogérance).
+- Le déploiement du logiciel au sein d'une infrastructure d'entreprise à des fins professionnelles de surveillance commerciale sans accord écrit préalable.
+
+3. FORKS ET CRÉDITS (ATTRIBUTION)
+Conformément aux conditions d'utilisation de la plateforme d'hébergement (GitHub), la création de copies publiques ("forks") est autorisée, sous réserve du respect strict des conditions suivantes :
+- L'Utilisateur doit conserver l'intégralité de la présente notice de droit d'auteur ("Copyright") et des mentions de licence dans toutes les copies ou parties substantielles du logiciel.
+- Le nom de l'Auteur original (Maël Moreau) doit être crédité de manière visible et explicite sur la page d'accueil du dépôt dupliqué ainsi que dans sa documentation principale.
+- Les forks restent soumis à l'interdiction d'exploitation commerciale définie à l'Article 2.
+
+4. MODIFICATIONS
+L'Utilisateur est autorisé à modifier le code source pour son usage strictement personnel et non commercial. Si les modifications sont publiées, elles doivent obligatoirement être soumises aux termes restrictifs de cette même licence.
+
+5. EXCLUSION DE GARANTIE
+LE LOGICIEL EST FOURNI "EN L'ÉTAT", SANS GARANTIE D'AUCUNE SORTE, EXPRESSE OU IMPLICITE, Y COMPRIS MAIS SANS S'Y LIMITER, LES GARANTIES DE QUALITÉ MARCHANDE OU D'ADÉQUATION À UN USAGE PARTICULIER. EN AUCUN CAS L'AUTEUR NE POURRA ÊTRE TENU RESPONSABLE D'UNE QUELCONQUE RÉCLAMATION, DOMMAGE OU AUTRE RESPONSABILITÉ LIÉE AU LOGICIEL.
+
+6. RÉSILIATION
+Tout manquement aux termes de cette licence entraînera la résiliation automatique de vos droits d'utilisation et de consultation du logiciel, et pourra donner lieu à des poursuites judiciaires pour contrefaçon de propriété intellectuelle.
