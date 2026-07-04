@@ -25,6 +25,7 @@ type Service interface {
 	ListActiveStreams(ctx context.Context) ([]ActiveStream, error)
 	SyncWithMediaMTX(ctx context.Context) error
 	DiscoverCameras(ctx context.Context, username, password string, timeout time.Duration) ([]DiscoveredCamera, error)
+	ConfigureWHEPStream(ctx context.Context, cameraID string) error
 
 	// Lifecycle & synchronization methods
 	Start(ctx context.Context) error
@@ -86,15 +87,24 @@ func (s *service) CreateCamera(ctx context.Context, req CreateCameraRequest) (*C
 	}
 
 	cam := &Camera{
-		Nom:          req.Nom,
-		URLRTSP:      req.URLRTSP,
-		SiteID:       req.SiteID,
-		Statut:       req.Statut,
-		IP:           req.IP,
-		Port:         req.Port,
-		Username:     req.Username,
-		PTZSupported: req.PTZSupported,
-		ProfileToken: req.ProfileToken,
+		Nom:           req.Nom,
+		URLRTSP:       req.URLRTSP,
+		MainStreamURL: req.MainStreamURL,
+		SubStreamURL:  req.SubStreamURL,
+		SiteID:        req.SiteID,
+		Statut:        req.Statut,
+		IP:            req.IP,
+		Port:          req.Port,
+		Username:      req.Username,
+		PTZSupported:  req.PTZSupported,
+		ProfileToken:  req.ProfileToken,
+	}
+
+	if cam.MainStreamURL == "" && cam.URLRTSP != "" {
+		cam.MainStreamURL = cam.URLRTSP
+	}
+	if cam.URLRTSP == "" && cam.MainStreamURL != "" {
+		cam.URLRTSP = cam.MainStreamURL
 	}
 
 	if req.Password != nil && *req.Password != "" {
@@ -112,7 +122,17 @@ func (s *service) CreateCamera(ctx context.Context, req CreateCameraRequest) (*C
 
 	if created.Statut == "active" {
 		s.log.Info("Adding camera to MediaMTX after creation", zap.String("id", created.ID), zap.String("nom", created.Nom))
-		if err := s.mtxClient.AddPath(ctx, created.ID, created.URLRTSP); err != nil {
+		
+		streamURL := created.SubStreamURL
+		if streamURL == "" {
+			if created.MainStreamURL != "" {
+				streamURL = created.MainStreamURL
+			} else {
+				streamURL = created.URLRTSP
+			}
+		}
+
+		if err := s.mtxClient.AddPath(ctx, created.ID, streamURL); err != nil {
 			s.log.Error("Failed to register path in MediaMTX during camera creation", zap.String("id", created.ID), zap.Error(err))
 			// We don't rollback DB creation since camera was successfully created.
 			// Startup sync or manual retry will fix MediaMTX registration.
@@ -130,9 +150,13 @@ func (s *service) UpdateCamera(ctx context.Context, id string, req UpdateCameraR
 
 	oldStatut := existing.Statut
 	oldURL := existing.URLRTSP
+	oldMainURL := existing.MainStreamURL
+	oldSubURL := existing.SubStreamURL
 
 	existing.Nom = req.Nom
 	existing.URLRTSP = req.URLRTSP
+	existing.MainStreamURL = req.MainStreamURL
+	existing.SubStreamURL = req.SubStreamURL
 	existing.SiteID = req.SiteID
 	existing.Statut = req.Statut
 	existing.IP = req.IP
@@ -140,6 +164,13 @@ func (s *service) UpdateCamera(ctx context.Context, id string, req UpdateCameraR
 	existing.Username = req.Username
 	existing.PTZSupported = req.PTZSupported
 	existing.ProfileToken = req.ProfileToken
+
+	if existing.MainStreamURL == "" && existing.URLRTSP != "" {
+		existing.MainStreamURL = existing.URLRTSP
+	}
+	if existing.URLRTSP == "" && existing.MainStreamURL != "" {
+		existing.URLRTSP = existing.MainStreamURL
+	}
 
 	if req.Password != nil && *req.Password != "" {
 		encPassword, err := EncryptPassword(*req.Password, s.jwtSecret)
@@ -161,11 +192,21 @@ func (s *service) UpdateCamera(ctx context.Context, id string, req UpdateCameraR
 			s.log.Error("Failed to delete path in MediaMTX during camera inactivation", zap.String("id", id), zap.Error(err))
 		}
 	} else if updated.Statut == "active" {
-		if oldStatut == "inactive" || oldURL != updated.URLRTSP {
+		if oldStatut == "inactive" || oldURL != updated.URLRTSP || oldMainURL != updated.MainStreamURL || oldSubURL != updated.SubStreamURL {
 			s.log.Info("Updating camera path in MediaMTX", zap.String("id", id))
 			// Delete and recreate to ensure state is clean
 			_ = s.mtxClient.DeletePath(ctx, id)
-			if err := s.mtxClient.AddPath(ctx, id, updated.URLRTSP); err != nil {
+
+			streamURL := updated.SubStreamURL
+			if streamURL == "" {
+				if updated.MainStreamURL != "" {
+					streamURL = updated.MainStreamURL
+				} else {
+					streamURL = updated.URLRTSP
+				}
+			}
+
+			if err := s.mtxClient.AddPath(ctx, id, streamURL); err != nil {
 				s.log.Error("Failed to register path in MediaMTX during camera update", zap.String("id", id), zap.Error(err))
 			}
 		}
@@ -279,7 +320,17 @@ func (s *service) SyncWithMediaMTX(ctx context.Context) error {
 			s.log.Info("Sync: adding camera path to MediaMTX", zap.String("id", cam.ID), zap.String("nom", cam.Nom))
 			// Delete to clear, then recreate
 			_ = s.mtxClient.DeletePath(ctx, cam.ID)
-			if err := s.mtxClient.AddPath(ctx, cam.ID, cam.URLRTSP); err != nil {
+
+			streamURL := cam.SubStreamURL
+			if streamURL == "" {
+				if cam.MainStreamURL != "" {
+					streamURL = cam.MainStreamURL
+				} else {
+					streamURL = cam.URLRTSP
+				}
+			}
+
+			if err := s.mtxClient.AddPath(ctx, cam.ID, streamURL); err != nil {
 				s.log.Error("Sync: failed to add camera path", zap.String("id", cam.ID), zap.Error(err))
 			}
 		} else {
@@ -310,6 +361,8 @@ func (s *service) DiscoverCameras(ctx context.Context, username, password string
 
 		model := "ONVIF Camera"
 		streamURL := ""
+		mainStreamURL := ""
+		subStreamURL := ""
 		ptzSupported := false
 		profileToken := ""
 
@@ -354,7 +407,7 @@ func (s *service) DiscoverCameras(ctx context.Context, username, password string
 				} else if len(profResp.Body.GetProfilesResponse.Profiles) > 0 {
 					profileToken = profResp.Body.GetProfilesResponse.Profiles[0].Token
 
-					// Step 4: Get Stream URI for the first profile
+					// Step 4: Get Stream URI for the first profile (main stream)
 					streamUriReq := GetStreamUri{
 						XmlnsTrt: "http://www.onvif.org/ver10/media/wsdl",
 						XmlnsTt:  "http://www.onvif.org/ver10/schema",
@@ -365,33 +418,57 @@ func (s *service) DiscoverCameras(ctx context.Context, username, password string
 
 					uriResp, err := SendSOAPRequest(ctx, mediaURL, streamUriReq, username, password)
 					if err != nil {
-						s.log.Warn("Failed to fetch stream URI via SOAP", zap.String("ip", dev.IP), zap.Error(err))
+						s.log.Warn("Failed to fetch main stream URI via SOAP", zap.String("ip", dev.IP), zap.Error(err))
 					} else {
-						streamURL = uriResp.Body.GetStreamUriResponse.MediaUri.Uri
+						mainStreamURL = uriResp.Body.GetStreamUriResponse.MediaUri.Uri
+						streamURL = mainStreamURL
+					}
+
+					// Get Stream URI for the second profile (sub stream) if available
+					if len(profResp.Body.GetProfilesResponse.Profiles) > 1 {
+						subProfileToken := profResp.Body.GetProfilesResponse.Profiles[1].Token
+						subStreamUriReq := GetStreamUri{
+							XmlnsTrt: "http://www.onvif.org/ver10/media/wsdl",
+							XmlnsTt:  "http://www.onvif.org/ver10/schema",
+							ProfileToken: subProfileToken,
+						}
+						subStreamUriReq.StreamSetup.Stream = "RTP-Unicast"
+						subStreamUriReq.StreamSetup.Transport.Protocol = "RTSP"
+
+						subUriResp, err := SendSOAPRequest(ctx, mediaURL, subStreamUriReq, username, password)
+						if err != nil {
+							s.log.Warn("Failed to fetch sub stream URI via SOAP", zap.String("ip", dev.IP), zap.Error(err))
+						} else {
+							subStreamURL = subUriResp.Body.GetStreamUriResponse.MediaUri.Uri
+						}
 					}
 				}
 			}
 		}
 
 		camResult := DiscoveredCamera{
-			IP:           dev.IP,
-			Port:         dev.Port,
-			EndpointURL:  dev.XAddr,
-			DeviceToken:  dev.EndpointReference,
-			Model:        model,
-			StreamURL:    streamURL,
-			PTZSupported: ptzSupported,
-			ProfileToken: profileToken,
+			IP:            dev.IP,
+			Port:          dev.Port,
+			EndpointURL:   dev.XAddr,
+			DeviceToken:   dev.EndpointReference,
+			Model:         model,
+			StreamURL:     streamURL,
+			MainStreamURL: mainStreamURL,
+			SubStreamURL:  subStreamURL,
+			PTZSupported:  ptzSupported,
+			ProfileToken:  profileToken,
 		}
 
 		discovered = append(discovered, camResult)
 
 		// Step 5: Publish event to NATS
 		eventPayload := DiscoveredCameraEvent{
-			IP:        dev.IP,
-			Model:     model,
-			StreamURL: streamURL,
-			Timestamp: time.Now(),
+			IP:            dev.IP,
+			Model:         model,
+			StreamURL:     streamURL,
+			MainStreamURL: mainStreamURL,
+			SubStreamURL:  subStreamURL,
+			Timestamp:     time.Now(),
 		}
 		if s.publisher != nil {
 			if err := s.publisher.PublishCameraDiscovered(ctx, eventPayload); err != nil {
@@ -403,4 +480,38 @@ func (s *service) DiscoverCameras(ctx context.Context, username, password string
 	}
 
 	return discovered, nil
+}
+
+func (s *service) ConfigureWHEPStream(ctx context.Context, cameraID string) error {
+	cam, err := s.repo.GetByID(ctx, cameraID)
+	if err != nil {
+		return fmt.Errorf("camera lookup failed: %w", err)
+	}
+
+	if cam.Statut != "active" {
+		return fmt.Errorf("camera is inactive, cannot configure WHEP stream")
+	}
+
+	streamURL := cam.SubStreamURL
+	if streamURL == "" {
+		if cam.MainStreamURL != "" {
+			streamURL = cam.MainStreamURL
+		} else {
+			streamURL = cam.URLRTSP
+		}
+	}
+
+	if streamURL == "" {
+		return fmt.Errorf("no stream URL configured for camera %s", cameraID)
+	}
+
+	s.log.Info("Configuring dynamic MediaMTX path for WHEP (WebRTC)", zap.String("camera_id", cameraID), zap.String("source_url", streamURL))
+	
+	// Add path dynamically to MediaMTX.
+	// Since MediaMTX has WebRTC egress enabled, this exposes it via WHEP.
+	if err := s.mtxClient.AddPath(ctx, cameraID, streamURL); err != nil {
+		return fmt.Errorf("failed to add path to MediaMTX: %w", err)
+	}
+
+	return nil
 }

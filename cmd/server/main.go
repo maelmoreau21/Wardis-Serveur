@@ -190,6 +190,7 @@ func main() {
 		r.Get("/cameras", videoHandler.ListCameras)
 		r.Get("/cameras/{id}", videoHandler.GetCameraByID)
 		r.Post("/cameras/{id}/token", videoHandler.GenerateStreamToken)
+		r.Post("/cameras/{id}/whep", videoHandler.ConfigureWHEPStream)
 		r.Get("/cameras/active-streams", videoHandler.ListActiveStreams)
 		r.Post("/cameras/{id}/sync", videoHandler.SyncRecording)
 

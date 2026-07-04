@@ -40,7 +40,7 @@ func (m *mockRecordingRepository) GetByID(ctx context.Context, id string) (*Came
 	if m.getByIDCamera != nil {
 		return m.getByIDCamera, nil
 	}
-	return &Camera{ID: id, Nom: "Test Camera"}, nil
+	return &Camera{ID: id, Nom: "Test Camera", MainStreamURL: "rtsp://example.com/main"}, nil
 }
 
 func (m *mockRecordingRepository) SaveRecording(ctx context.Context, rec *VideoRecording) error {
@@ -325,5 +325,31 @@ func TestNatsSyncPayloadHandler(t *testing.T) {
 	}
 	if !bytes.Equal(data, videoData) {
 		t.Errorf("expected file data %s, got %s", string(videoData), string(data))
+	}
+}
+
+func TestSyncRecordingRejectsEmptyMainStreamURL(t *testing.T) {
+	logger := zap.NewNop()
+	tempDir := t.TempDir()
+	cfg := &config.Config{
+		RecordingsLocalDir: tempDir,
+	}
+
+	repo := &mockRecordingRepository{
+		getByIDCamera: &Camera{ID: "cam-no-main", Nom: "No Main Stream Camera", MainStreamURL: ""},
+	}
+	svc := NewService(repo, nil, nil, "secret", logger, cfg).(*service)
+
+	startTime := time.Now()
+	endTime := startTime.Add(1 * time.Minute)
+	fileData := []byte("fake video content")
+	filename := "test_video.mp4"
+
+	rec, err := svc.SyncRecording(context.Background(), "cam-no-main", startTime, endTime, fileData, filename)
+	if err == nil {
+		t.Fatal("expected error when SyncRecording is called for camera with empty main_stream_url, got nil")
+	}
+	if rec != nil {
+		t.Errorf("expected returned recording to be nil, got: %v", rec)
 	}
 }

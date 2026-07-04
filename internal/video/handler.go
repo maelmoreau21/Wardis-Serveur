@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -76,8 +77,23 @@ func (h *Handler) CreateCamera(w http.ResponseWriter, r *http.Request) {
 		h.respondWithError(w, http.StatusBadRequest, "invalid camera name (must be 1-100 characters)")
 		return
 	}
+	if req.URLRTSP == "" && req.MainStreamURL != "" {
+		req.URLRTSP = req.MainStreamURL
+	}
+	if req.MainStreamURL == "" && req.URLRTSP != "" {
+		req.MainStreamURL = req.URLRTSP
+	}
+
 	if !validation.IsRTSPURL(req.URLRTSP) {
 		h.respondWithError(w, http.StatusBadRequest, "invalid RTSP URL format")
+		return
+	}
+	if req.MainStreamURL != "" && !validation.IsRTSPURL(req.MainStreamURL) {
+		h.respondWithError(w, http.StatusBadRequest, "invalid main stream RTSP URL format")
+		return
+	}
+	if req.SubStreamURL != "" && !validation.IsRTSPURL(req.SubStreamURL) {
+		h.respondWithError(w, http.StatusBadRequest, "invalid sub stream RTSP URL format")
 		return
 	}
 	if req.SiteID != nil && *req.SiteID != "" && !validation.IsUUID(*req.SiteID) {
@@ -119,8 +135,23 @@ func (h *Handler) UpdateCamera(w http.ResponseWriter, r *http.Request) {
 		h.respondWithError(w, http.StatusBadRequest, "invalid camera name (must be 1-100 characters)")
 		return
 	}
+	if req.URLRTSP == "" && req.MainStreamURL != "" {
+		req.URLRTSP = req.MainStreamURL
+	}
+	if req.MainStreamURL == "" && req.URLRTSP != "" {
+		req.MainStreamURL = req.URLRTSP
+	}
+
 	if !validation.IsRTSPURL(req.URLRTSP) {
 		h.respondWithError(w, http.StatusBadRequest, "invalid RTSP URL format")
+		return
+	}
+	if req.MainStreamURL != "" && !validation.IsRTSPURL(req.MainStreamURL) {
+		h.respondWithError(w, http.StatusBadRequest, "invalid main stream RTSP URL format")
+		return
+	}
+	if req.SubStreamURL != "" && !validation.IsRTSPURL(req.SubStreamURL) {
+		h.respondWithError(w, http.StatusBadRequest, "invalid sub stream RTSP URL format")
 		return
 	}
 	if req.SiteID != nil && *req.SiteID != "" && !validation.IsUUID(*req.SiteID) {
@@ -411,4 +442,37 @@ func (h *Handler) SyncRecording(w http.ResponseWriter, r *http.Request) {
 			"message": "recording received but fully redundant/skipped",
 		})
 	}
+}
+
+func (h *Handler) ConfigureWHEPStream(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if id == "" || !validation.IsUUID(id) {
+		h.respondWithError(w, http.StatusBadRequest, "invalid camera ID format")
+		return
+	}
+
+	err := h.service.ConfigureWHEPStream(r.Context(), id)
+	if err != nil {
+		h.respondWithError(w, http.StatusInternalServerError, "failed to configure WHEP stream: "+err.Error())
+		return
+	}
+
+	// Generate stream token for access authorization
+	token, err := h.service.GenerateStreamToken(r.Context(), id)
+	if err != nil {
+		h.log.Error("failed to generate stream token for WHEP URL", zap.Error(err))
+		// We still return success but without the token/url
+		h.respondWithJSON(w, http.StatusOK, map[string]string{
+			"message": "WHEP stream configured successfully in MediaMTX",
+		})
+		return
+	}
+
+	// Construct WHEP URL (defaulting to localhost:8889 if unable to parse config)
+	whepURL := fmt.Sprintf("http://localhost:8889/%s/whep?token=%s", id, token)
+
+	h.respondWithJSON(w, http.StatusOK, map[string]string{
+		"message":  "WHEP stream configured successfully in MediaMTX",
+		"whep_url": whepURL,
+	})
 }

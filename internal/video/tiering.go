@@ -68,9 +68,13 @@ func (s *service) Close() {
 // PostgreSQL timeline, saves the video file locally, and registers the database index.
 func (s *service) SyncRecording(ctx context.Context, cameraID string, startTime, endTime time.Time, fileData []byte, filename string) (*VideoRecording, error) {
 	// 1. Verify camera exists
-	_, err := s.repo.GetByID(ctx, cameraID)
+	camera, err := s.repo.GetByID(ctx, cameraID)
 	if err != nil {
 		return nil, fmt.Errorf("camera lookup failed: %w", err)
+	}
+
+	if camera.MainStreamURL == "" {
+		return nil, fmt.Errorf("recording rejected: camera %s does not have a main_stream_url configured", cameraID)
 	}
 
 	// 2. Query overlapping recordings

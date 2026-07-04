@@ -39,7 +39,7 @@ func NewRepository(db *pgxpool.Pool) Repository {
 }
 
 func (r *postgresRepository) List(ctx context.Context) ([]Camera, error) {
-	query := `SELECT id, nom, url_rtsp, site_id, statut, created_at, ip, port, username, password_encrypted, ptz_supported, profile_token FROM cameras ORDER BY created_at ASC`
+	query := `SELECT id, nom, url_rtsp, main_stream_url, sub_stream_url, site_id, statut, created_at, ip, port, username, password_encrypted, ptz_supported, profile_token FROM cameras ORDER BY created_at ASC`
 	rows, err := r.db.Query(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query cameras: %w", err)
@@ -52,7 +52,8 @@ func (r *postgresRepository) List(ctx context.Context) ([]Camera, error) {
 		var siteID sql.NullString
 		var ip, username, passwordEncrypted, profileToken sql.NullString
 		var port sql.NullInt64
-		if err := rows.Scan(&c.ID, &c.Nom, &c.URLRTSP, &siteID, &c.Statut, &c.CreatedAt, &ip, &port, &username, &passwordEncrypted, &c.PTZSupported, &profileToken); err != nil {
+		var mainStreamURL, subStreamURL sql.NullString
+		if err := rows.Scan(&c.ID, &c.Nom, &c.URLRTSP, &mainStreamURL, &subStreamURL, &siteID, &c.Statut, &c.CreatedAt, &ip, &port, &username, &passwordEncrypted, &c.PTZSupported, &profileToken); err != nil {
 			return nil, fmt.Errorf("failed to scan camera row: %w", err)
 		}
 		if siteID.Valid {
@@ -74,6 +75,12 @@ func (r *postgresRepository) List(ctx context.Context) ([]Camera, error) {
 		if profileToken.Valid {
 			c.ProfileToken = &profileToken.String
 		}
+		if mainStreamURL.Valid {
+			c.MainStreamURL = mainStreamURL.String
+		}
+		if subStreamURL.Valid {
+			c.SubStreamURL = subStreamURL.String
+		}
 		cameras = append(cameras, c)
 	}
 
@@ -85,12 +92,13 @@ func (r *postgresRepository) List(ctx context.Context) ([]Camera, error) {
 }
 
 func (r *postgresRepository) GetByID(ctx context.Context, id string) (*Camera, error) {
-	query := `SELECT id, nom, url_rtsp, site_id, statut, created_at, ip, port, username, password_encrypted, ptz_supported, profile_token FROM cameras WHERE id = $1`
+	query := `SELECT id, nom, url_rtsp, main_stream_url, sub_stream_url, site_id, statut, created_at, ip, port, username, password_encrypted, ptz_supported, profile_token FROM cameras WHERE id = $1`
 	var c Camera
 	var siteID sql.NullString
 	var ip, username, passwordEncrypted, profileToken sql.NullString
 	var port sql.NullInt64
-	err := r.db.QueryRow(ctx, query, id).Scan(&c.ID, &c.Nom, &c.URLRTSP, &siteID, &c.Statut, &c.CreatedAt, &ip, &port, &username, &passwordEncrypted, &c.PTZSupported, &profileToken)
+	var mainStreamURL, subStreamURL sql.NullString
+	err := r.db.QueryRow(ctx, query, id).Scan(&c.ID, &c.Nom, &c.URLRTSP, &mainStreamURL, &subStreamURL, &siteID, &c.Statut, &c.CreatedAt, &ip, &port, &username, &passwordEncrypted, &c.PTZSupported, &profileToken)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrCameraNotFound
@@ -116,13 +124,19 @@ func (r *postgresRepository) GetByID(ctx context.Context, id string) (*Camera, e
 	if profileToken.Valid {
 		c.ProfileToken = &profileToken.String
 	}
+	if mainStreamURL.Valid {
+		c.MainStreamURL = mainStreamURL.String
+	}
+	if subStreamURL.Valid {
+		c.SubStreamURL = subStreamURL.String
+	}
 	return &c, nil
 }
 
 func (r *postgresRepository) Create(ctx context.Context, c *Camera) (*Camera, error) {
 	query := `
-		INSERT INTO cameras (nom, url_rtsp, site_id, statut, ip, port, username, password_encrypted, ptz_supported, profile_token)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		INSERT INTO cameras (nom, url_rtsp, main_stream_url, sub_stream_url, site_id, statut, ip, port, username, password_encrypted, ptz_supported, profile_token)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		RETURNING id, created_at`
 	
 	var siteID sql.NullString
@@ -133,6 +147,7 @@ func (r *postgresRepository) Create(ctx context.Context, c *Camera) (*Camera, er
 
 	var ip, username, passwordEncrypted, profileToken sql.NullString
 	var port sql.NullInt64
+	var mainStreamURL, subStreamURL sql.NullString
 
 	if c.IP != nil {
 		ip.String = *c.IP
@@ -154,8 +169,16 @@ func (r *postgresRepository) Create(ctx context.Context, c *Camera) (*Camera, er
 		profileToken.String = *c.ProfileToken
 		profileToken.Valid = true
 	}
+	if c.MainStreamURL != "" {
+		mainStreamURL.String = c.MainStreamURL
+		mainStreamURL.Valid = true
+	}
+	if c.SubStreamURL != "" {
+		subStreamURL.String = c.SubStreamURL
+		subStreamURL.Valid = true
+	}
 
-	err := r.db.QueryRow(ctx, query, c.Nom, c.URLRTSP, siteID, c.Statut, ip, port, username, passwordEncrypted, c.PTZSupported, profileToken).Scan(&c.ID, &c.CreatedAt)
+	err := r.db.QueryRow(ctx, query, c.Nom, c.URLRTSP, mainStreamURL, subStreamURL, siteID, c.Statut, ip, port, username, passwordEncrypted, c.PTZSupported, profileToken).Scan(&c.ID, &c.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create camera: %w", err)
 	}
@@ -166,8 +189,8 @@ func (r *postgresRepository) Create(ctx context.Context, c *Camera) (*Camera, er
 func (r *postgresRepository) Update(ctx context.Context, c *Camera) (*Camera, error) {
 	query := `
 		UPDATE cameras
-		SET nom = $1, url_rtsp = $2, site_id = $3, statut = $4, ip = $5, port = $6, username = $7, password_encrypted = $8, ptz_supported = $9, profile_token = $10
-		WHERE id = $11`
+		SET nom = $1, url_rtsp = $2, main_stream_url = $3, sub_stream_url = $4, site_id = $5, statut = $6, ip = $7, port = $8, username = $9, password_encrypted = $10, ptz_supported = $11, profile_token = $12
+		WHERE id = $13`
 
 	var siteID sql.NullString
 	if c.SiteID != nil {
@@ -177,6 +200,7 @@ func (r *postgresRepository) Update(ctx context.Context, c *Camera) (*Camera, er
 
 	var ip, username, passwordEncrypted, profileToken sql.NullString
 	var port sql.NullInt64
+	var mainStreamURL, subStreamURL sql.NullString
 
 	if c.IP != nil {
 		ip.String = *c.IP
@@ -198,8 +222,16 @@ func (r *postgresRepository) Update(ctx context.Context, c *Camera) (*Camera, er
 		profileToken.String = *c.ProfileToken
 		profileToken.Valid = true
 	}
+	if c.MainStreamURL != "" {
+		mainStreamURL.String = c.MainStreamURL
+		mainStreamURL.Valid = true
+	}
+	if c.SubStreamURL != "" {
+		subStreamURL.String = c.SubStreamURL
+		subStreamURL.Valid = true
+	}
 
-	tag, err := r.db.Exec(ctx, query, c.Nom, c.URLRTSP, siteID, c.Statut, ip, port, username, passwordEncrypted, c.PTZSupported, profileToken, c.ID)
+	tag, err := r.db.Exec(ctx, query, c.Nom, c.URLRTSP, mainStreamURL, subStreamURL, siteID, c.Statut, ip, port, username, passwordEncrypted, c.PTZSupported, profileToken, c.ID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to update camera: %w", err)
 	}

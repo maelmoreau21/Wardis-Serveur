@@ -10,6 +10,8 @@ type Camera struct {
 	ID                string    `json:"id"`
 	Nom               string    `json:"nom"`
 	URLRTSP           string    `json:"url_rtsp"`
+	MainStreamURL     string    `json:"main_stream_url"`
+	SubStreamURL      string    `json:"sub_stream_url"`
 	SiteID            *string   `json:"site_id,omitempty"`
 	Statut            string    `json:"statut"` // "active" or "inactive"
 	CreatedAt         time.Time `json:"created_at"`
@@ -22,29 +24,33 @@ type Camera struct {
 }
 
 type CreateCameraRequest struct {
-	Nom          string  `json:"nom"`
-	URLRTSP      string  `json:"url_rtsp"`
-	SiteID       *string `json:"site_id,omitempty"`
-	Statut       string  `json:"statut"`
-	IP           *string `json:"ip,omitempty"`
-	Port         *int    `json:"port,omitempty"`
-	Username     *string `json:"username,omitempty"`
-	Password     *string `json:"password,omitempty"`
-	PTZSupported bool    `json:"ptz_supported"`
-	ProfileToken *string `json:"profile_token,omitempty"`
+	Nom           string  `json:"nom"`
+	URLRTSP       string  `json:"url_rtsp"`
+	MainStreamURL string  `json:"main_stream_url"`
+	SubStreamURL  string  `json:"sub_stream_url"`
+	SiteID        *string `json:"site_id,omitempty"`
+	Statut        string  `json:"statut"`
+	IP            *string `json:"ip,omitempty"`
+	Port          *int    `json:"port,omitempty"`
+	Username      *string `json:"username,omitempty"`
+	Password      *string `json:"password,omitempty"`
+	PTZSupported  bool    `json:"ptz_supported"`
+	ProfileToken  *string `json:"profile_token,omitempty"`
 }
 
 type UpdateCameraRequest struct {
-	Nom          string  `json:"nom"`
-	URLRTSP      string  `json:"url_rtsp"`
-	SiteID       *string `json:"site_id,omitempty"`
-	Statut       string  `json:"statut"`
-	IP           *string `json:"ip,omitempty"`
-	Port         *int    `json:"port,omitempty"`
-	Username     *string `json:"username,omitempty"`
-	Password     *string `json:"password,omitempty"`
-	PTZSupported bool    `json:"ptz_supported"`
-	ProfileToken *string `json:"profile_token,omitempty"`
+	Nom           string  `json:"nom"`
+	URLRTSP       string  `json:"url_rtsp"`
+	MainStreamURL string  `json:"main_stream_url"`
+	SubStreamURL  string  `json:"sub_stream_url"`
+	SiteID        *string `json:"site_id,omitempty"`
+	Statut        string  `json:"statut"`
+	IP            *string `json:"ip,omitempty"`
+	Port          *int    `json:"port,omitempty"`
+	Username      *string `json:"username,omitempty"`
+	Password      *string `json:"password,omitempty"`
+	PTZSupported  bool    `json:"ptz_supported"`
+	ProfileToken  *string `json:"profile_token,omitempty"`
 }
 
 type DiscoverCamerasRequest struct {
@@ -54,21 +60,25 @@ type DiscoverCamerasRequest struct {
 }
 
 type DiscoveredCamera struct {
-	IP           string `json:"ip"`
-	Port         int    `json:"port"`
-	EndpointURL  string `json:"endpoint_url"`
-	DeviceToken  string `json:"device_token"`
-	Model        string `json:"model"`
-	StreamURL    string `json:"stream_url"`
-	PTZSupported bool   `json:"ptz_supported"`
-	ProfileToken string `json:"profile_token"`
+	IP            string `json:"ip"`
+	Port          int    `json:"port"`
+	EndpointURL   string `json:"endpoint_url"`
+	DeviceToken   string `json:"device_token"`
+	Model         string `json:"model"`
+	StreamURL     string `json:"stream_url"`
+	MainStreamURL string `json:"main_stream_url"`
+	SubStreamURL  string `json:"sub_stream_url"`
+	PTZSupported  bool   `json:"ptz_supported"`
+	ProfileToken  string `json:"profile_token"`
 }
 
 type DiscoveredCameraEvent struct {
-	IP        string    `json:"ip"`
-	Model     string    `json:"model"`
-	StreamURL string    `json:"stream_url"`
-	Timestamp time.Time `json:"timestamp"`
+	IP            string    `json:"ip"`
+	Model         string    `json:"model"`
+	StreamURL     string    `json:"stream_url"`
+	MainStreamURL string    `json:"main_stream_url"`
+	SubStreamURL  string    `json:"sub_stream_url"`
+	Timestamp     time.Time `json:"timestamp"`
 }
 
 type StreamClaims struct {

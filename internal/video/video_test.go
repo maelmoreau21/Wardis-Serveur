@@ -300,6 +300,41 @@ func TestVideoService(t *testing.T) {
 		
 		_ = cam2 // keep compiler happy
 	})
+
+	t.Run("Create Camera Dual Stream & Configure WHEP", func(t *testing.T) {
+		repo := &mockRepository{cameras: make(map[string]video.Camera)}
+		mtx := &mockMediaMtxClient{paths: make(map[string]string)}
+		svc := video.NewService(repo, mtx, pub, jwtSecret, logger, nil)
+
+		req := video.CreateCameraRequest{
+			Nom:           "Dual Cam",
+			URLRTSP:       "rtsp://example.com/fallback",
+			MainStreamURL: "rtsp://example.com/main-4k",
+			SubStreamURL:  "rtsp://example.com/sub-vga",
+			Statut:        "active",
+		}
+
+		cam, err := svc.CreateCamera(ctx, req)
+		if err != nil {
+			t.Fatalf("expected no error, got: %v", err)
+		}
+
+		// Verify added to MediaMTX with sub_stream_url
+		if mtx.paths[cam.ID] != "rtsp://example.com/sub-vga" {
+			t.Errorf("expected MediaMTX path to be sub_stream_url, got %s", mtx.paths[cam.ID])
+		}
+
+		// Change path in MediaMTX and configure WHEP dynamically
+		mtx.paths[cam.ID] = "rtsp://example.com/something-else"
+		err = svc.ConfigureWHEPStream(ctx, cam.ID)
+		if err != nil {
+			t.Fatalf("expected no error, got: %v", err)
+		}
+
+		if mtx.paths[cam.ID] != "rtsp://example.com/sub-vga" {
+			t.Errorf("expected MediaMTX path to be reset to sub_stream_url via WHEP configuration, got %s", mtx.paths[cam.ID])
+		}
+	})
 }
 
 func TestONVIFCrypto(t *testing.T) {
