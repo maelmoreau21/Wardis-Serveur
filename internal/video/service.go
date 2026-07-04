@@ -19,19 +19,22 @@ type Service interface {
 	ValidateStreamToken(tokenStr string, cameraID string) error
 	ListActiveStreams(ctx context.Context) ([]ActiveStream, error)
 	SyncWithMediaMTX(ctx context.Context) error
+	DiscoverCameras(ctx context.Context, username, password string, timeout time.Duration) ([]DiscoveredCamera, error)
 }
 
 type service struct {
 	repo       Repository
 	mtxClient  MediaMtxClient
+	publisher  EventPublisher
 	jwtSecret  []byte
 	log        *zap.Logger
 }
 
-func NewService(repo Repository, mtxClient MediaMtxClient, jwtSecret string, log *zap.Logger) Service {
+func NewService(repo Repository, mtxClient MediaMtxClient, publisher EventPublisher, jwtSecret string, log *zap.Logger) Service {
 	return &service{
 		repo:       repo,
 		mtxClient:  mtxClient,
+		publisher:  publisher,
 		jwtSecret:  []byte(jwtSecret),
 		log:        log,
 	}
@@ -51,10 +54,23 @@ func (s *service) CreateCamera(ctx context.Context, req CreateCameraRequest) (*C
 	}
 
 	cam := &Camera{
-		Nom:     req.Nom,
-		URLRTSP: req.URLRTSP,
-		SiteID:  req.SiteID,
-		Statut:  req.Statut,
+		Nom:          req.Nom,
+		URLRTSP:      req.URLRTSP,
+		SiteID:       req.SiteID,
+		Statut:       req.Statut,
+		IP:           req.IP,
+		Port:         req.Port,
+		Username:     req.Username,
+		PTZSupported: req.PTZSupported,
+		ProfileToken: req.ProfileToken,
+	}
+
+	if req.Password != nil && *req.Password != "" {
+		encPassword, err := EncryptPassword(*req.Password, s.jwtSecret)
+		if err != nil {
+			return nil, fmt.Errorf("failed to encrypt password: %w", err)
+		}
+		cam.PasswordEncrypted = &encPassword
 	}
 
 	created, err := s.repo.Create(ctx, cam)
@@ -87,6 +103,19 @@ func (s *service) UpdateCamera(ctx context.Context, id string, req UpdateCameraR
 	existing.URLRTSP = req.URLRTSP
 	existing.SiteID = req.SiteID
 	existing.Statut = req.Statut
+	existing.IP = req.IP
+	existing.Port = req.Port
+	existing.Username = req.Username
+	existing.PTZSupported = req.PTZSupported
+	existing.ProfileToken = req.ProfileToken
+
+	if req.Password != nil && *req.Password != "" {
+		encPassword, err := EncryptPassword(*req.Password, s.jwtSecret)
+		if err != nil {
+			return nil, fmt.Errorf("failed to encrypt password: %w", err)
+		}
+		existing.PasswordEncrypted = &encPassword
+	}
 
 	updated, err := s.repo.Update(ctx, existing)
 	if err != nil {
@@ -231,4 +260,115 @@ func (s *service) SyncWithMediaMTX(ctx context.Context) error {
 
 	s.log.Info("MediaMTX synchronization completed")
 	return nil
+}
+
+func (s *service) DiscoverCameras(ctx context.Context, username, password string, timeout time.Duration) ([]DiscoveredCamera, error) {
+	s.log.Info("Starting ONVIF WS-Discovery on local network", zap.Duration("timeout", timeout))
+	devices, err := DiscoverONVIFDevices(ctx, timeout)
+	if err != nil {
+		return nil, fmt.Errorf("failed to discover ONVIF devices: %w", err)
+	}
+
+	s.log.Info("WS-Discovery completed", zap.Int("device_count", len(devices)))
+
+	var discovered []DiscoveredCamera
+
+	for _, dev := range devices {
+		s.log.Info("Discovered camera NVT endpoint", zap.String("ip", dev.IP), zap.Int("port", dev.Port), zap.String("xaddr", dev.XAddr))
+
+		model := "ONVIF Camera"
+		streamURL := ""
+		ptzSupported := false
+		profileToken := ""
+
+		// Step 1: Get Device Information via SOAP
+		devInfoReq := GetDeviceInformation{
+			Xmlns: "http://www.onvif.org/ver10/device/wsdl",
+		}
+		devInfoResp, err := SendSOAPRequest(ctx, dev.XAddr, devInfoReq, username, password)
+		if err != nil {
+			s.log.Warn("Failed to fetch device information via SOAP", zap.String("ip", dev.IP), zap.Error(err))
+		} else {
+			model = devInfoResp.Body.GetDeviceInformationResponse.Model
+			if model == "" {
+				model = "ONVIF Camera"
+			}
+		}
+
+		// Step 2: Get Capabilities via SOAP
+		capReq := GetCapabilities{
+			Xmlns:    "http://www.onvif.org/ver10/device/wsdl",
+			Category: "All",
+		}
+		capResp, err := SendSOAPRequest(ctx, dev.XAddr, capReq, username, password)
+		if err != nil {
+			s.log.Warn("Failed to fetch capabilities via SOAP", zap.String("ip", dev.IP), zap.Error(err))
+		} else {
+			mediaURL := capResp.Body.GetCapabilitiesResponse.Capabilities.Media.XAddr
+			ptzURL := capResp.Body.GetCapabilitiesResponse.Capabilities.PTZ.XAddr
+
+			if ptzURL != "" {
+				ptzSupported = true
+			}
+
+			if mediaURL != "" {
+				// Step 3: Get Profiles via Media Service
+				profReq := GetProfiles{
+					Xmlns: "http://www.onvif.org/ver10/media/wsdl",
+				}
+				profResp, err := SendSOAPRequest(ctx, mediaURL, profReq, username, password)
+				if err != nil {
+					s.log.Warn("Failed to fetch media profiles via SOAP", zap.String("ip", dev.IP), zap.Error(err))
+				} else if len(profResp.Body.GetProfilesResponse.Profiles) > 0 {
+					profileToken = profResp.Body.GetProfilesResponse.Profiles[0].Token
+
+					// Step 4: Get Stream URI for the first profile
+					streamUriReq := GetStreamUri{
+						XmlnsTrt: "http://www.onvif.org/ver10/media/wsdl",
+						XmlnsTt:  "http://www.onvif.org/ver10/schema",
+						ProfileToken: profileToken,
+					}
+					streamUriReq.StreamSetup.Stream = "RTP-Unicast"
+					streamUriReq.StreamSetup.Transport.Protocol = "RTSP"
+
+					uriResp, err := SendSOAPRequest(ctx, mediaURL, streamUriReq, username, password)
+					if err != nil {
+						s.log.Warn("Failed to fetch stream URI via SOAP", zap.String("ip", dev.IP), zap.Error(err))
+					} else {
+						streamURL = uriResp.Body.GetStreamUriResponse.MediaUri.Uri
+					}
+				}
+			}
+		}
+
+		camResult := DiscoveredCamera{
+			IP:           dev.IP,
+			Port:         dev.Port,
+			EndpointURL:  dev.XAddr,
+			DeviceToken:  dev.EndpointReference,
+			Model:        model,
+			StreamURL:    streamURL,
+			PTZSupported: ptzSupported,
+			ProfileToken: profileToken,
+		}
+
+		discovered = append(discovered, camResult)
+
+		// Step 5: Publish event to NATS
+		eventPayload := DiscoveredCameraEvent{
+			IP:        dev.IP,
+			Model:     model,
+			StreamURL: streamURL,
+			Timestamp: time.Now(),
+		}
+		if s.publisher != nil {
+			if err := s.publisher.PublishCameraDiscovered(ctx, eventPayload); err != nil {
+				s.log.Error("Failed to publish cameras.discovered event to NATS", zap.Error(err))
+			} else {
+				s.log.Info("Successfully published cameras.discovered event to NATS", zap.String("ip", dev.IP))
+			}
+		}
+	}
+
+	return discovered, nil
 }

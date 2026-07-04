@@ -78,6 +78,14 @@ func main() {
 		log.Fatal("failed to initialize Intrusion NATS publisher", zap.Error(err))
 	}
 	defer intrusionNatsPub.Close()
+ 
+	// 4g. Initialize NATS connection for Video
+	log.Info("Connecting to NATS for Video...", zap.String("url", cfg.NatsURL))
+	videoNatsPub, err := video.NewNatsPublisher(cfg.NatsURL)
+	if err != nil {
+		log.Fatal("failed to initialize Video NATS publisher", zap.Error(err))
+	}
+	defer videoNatsPub.Close()
 
 	// 4d. Initialize Audit Logger
 	auditLogger := audit.New(dbPool, log)
@@ -102,7 +110,7 @@ func main() {
 	// 5c. Initialize Video Components
 	videoRepo := video.NewRepository(dbPool)
 	videoMtxClient := video.NewMediaMtxClient(cfg.MediaMtxAPIURL)
-	videoService := video.NewService(videoRepo, videoMtxClient, cfg.JWTSecret, log)
+	videoService := video.NewService(videoRepo, videoMtxClient, videoNatsPub, cfg.JWTSecret, log)
 	videoHandler := video.NewHandler(videoService, log, auditLogger)
 
 	// 5d. Initialize Intrusion Components
@@ -202,6 +210,7 @@ func main() {
 			r.Post("/cameras", videoHandler.CreateCamera)
 			r.Put("/cameras/{id}", videoHandler.UpdateCamera)
 			r.Delete("/cameras/{id}", videoHandler.DeleteCamera)
+			r.Post("/cameras/discover", videoHandler.DiscoverCameras)
 		})
 	})
 

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"go.uber.org/zap"
@@ -287,6 +288,33 @@ func (h *Handler) MediaMtxAuth(w http.ResponseWriter, r *http.Request) {
 
 	// Default allow for other API operations
 	w.WriteHeader(http.StatusOK)
+}
+
+func (h *Handler) DiscoverCameras(w http.ResponseWriter, r *http.Request) {
+	var req DiscoverCamerasRequest
+	req.Timeout = 5
+
+	if r.Body != http.NoBody && r.ContentLength > 0 {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			h.respondWithError(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
+	}
+
+	if req.Timeout <= 0 || req.Timeout > 30 {
+		req.Timeout = 5
+	}
+
+	discovered, err := h.service.DiscoverCameras(r.Context(), req.Username, req.Password, time.Duration(req.Timeout)*time.Second)
+	if err != nil {
+		h.audit.Log(r.Context(), r, "discover_cameras", "camera", "", "failed", map[string]interface{}{"error": err.Error()})
+		h.log.Error("failed to discover cameras", zap.Error(err))
+		h.respondWithError(w, http.StatusInternalServerError, "failed to discover cameras: "+err.Error())
+		return
+	}
+
+	h.audit.Log(r.Context(), r, "discover_cameras", "camera", "", "success", map[string]interface{}{"count": len(discovered)})
+	h.respondWithJSON(w, http.StatusOK, discovered)
 }
 
 func (h *Handler) respondWithError(w http.ResponseWriter, code int, message string) {

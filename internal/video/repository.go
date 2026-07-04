@@ -31,7 +31,7 @@ func NewRepository(db *pgxpool.Pool) Repository {
 }
 
 func (r *postgresRepository) List(ctx context.Context) ([]Camera, error) {
-	query := `SELECT id, nom, url_rtsp, site_id, statut, created_at FROM cameras ORDER BY created_at ASC`
+	query := `SELECT id, nom, url_rtsp, site_id, statut, created_at, ip, port, username, password_encrypted, ptz_supported, profile_token FROM cameras ORDER BY created_at ASC`
 	rows, err := r.db.Query(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query cameras: %w", err)
@@ -42,11 +42,29 @@ func (r *postgresRepository) List(ctx context.Context) ([]Camera, error) {
 	for rows.Next() {
 		var c Camera
 		var siteID sql.NullString
-		if err := rows.Scan(&c.ID, &c.Nom, &c.URLRTSP, &siteID, &c.Statut, &c.CreatedAt); err != nil {
+		var ip, username, passwordEncrypted, profileToken sql.NullString
+		var port sql.NullInt64
+		if err := rows.Scan(&c.ID, &c.Nom, &c.URLRTSP, &siteID, &c.Statut, &c.CreatedAt, &ip, &port, &username, &passwordEncrypted, &c.PTZSupported, &profileToken); err != nil {
 			return nil, fmt.Errorf("failed to scan camera row: %w", err)
 		}
 		if siteID.Valid {
 			c.SiteID = &siteID.String
+		}
+		if ip.Valid {
+			c.IP = &ip.String
+		}
+		if port.Valid {
+			p := int(port.Int64)
+			c.Port = &p
+		}
+		if username.Valid {
+			c.Username = &username.String
+		}
+		if passwordEncrypted.Valid {
+			c.PasswordEncrypted = &passwordEncrypted.String
+		}
+		if profileToken.Valid {
+			c.ProfileToken = &profileToken.String
 		}
 		cameras = append(cameras, c)
 	}
@@ -59,10 +77,12 @@ func (r *postgresRepository) List(ctx context.Context) ([]Camera, error) {
 }
 
 func (r *postgresRepository) GetByID(ctx context.Context, id string) (*Camera, error) {
-	query := `SELECT id, nom, url_rtsp, site_id, statut, created_at FROM cameras WHERE id = $1`
+	query := `SELECT id, nom, url_rtsp, site_id, statut, created_at, ip, port, username, password_encrypted, ptz_supported, profile_token FROM cameras WHERE id = $1`
 	var c Camera
 	var siteID sql.NullString
-	err := r.db.QueryRow(ctx, query, id).Scan(&c.ID, &c.Nom, &c.URLRTSP, &siteID, &c.Statut, &c.CreatedAt)
+	var ip, username, passwordEncrypted, profileToken sql.NullString
+	var port sql.NullInt64
+	err := r.db.QueryRow(ctx, query, id).Scan(&c.ID, &c.Nom, &c.URLRTSP, &siteID, &c.Statut, &c.CreatedAt, &ip, &port, &username, &passwordEncrypted, &c.PTZSupported, &profileToken)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrCameraNotFound
@@ -72,13 +92,29 @@ func (r *postgresRepository) GetByID(ctx context.Context, id string) (*Camera, e
 	if siteID.Valid {
 		c.SiteID = &siteID.String
 	}
+	if ip.Valid {
+		c.IP = &ip.String
+	}
+	if port.Valid {
+		p := int(port.Int64)
+		c.Port = &p
+	}
+	if username.Valid {
+		c.Username = &username.String
+	}
+	if passwordEncrypted.Valid {
+		c.PasswordEncrypted = &passwordEncrypted.String
+	}
+	if profileToken.Valid {
+		c.ProfileToken = &profileToken.String
+	}
 	return &c, nil
 }
 
 func (r *postgresRepository) Create(ctx context.Context, c *Camera) (*Camera, error) {
 	query := `
-		INSERT INTO cameras (nom, url_rtsp, site_id, statut)
-		VALUES ($1, $2, $3, $4)
+		INSERT INTO cameras (nom, url_rtsp, site_id, statut, ip, port, username, password_encrypted, ptz_supported, profile_token)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		RETURNING id, created_at`
 	
 	var siteID sql.NullString
@@ -87,7 +123,31 @@ func (r *postgresRepository) Create(ctx context.Context, c *Camera) (*Camera, er
 		siteID.Valid = true
 	}
 
-	err := r.db.QueryRow(ctx, query, c.Nom, c.URLRTSP, siteID, c.Statut).Scan(&c.ID, &c.CreatedAt)
+	var ip, username, passwordEncrypted, profileToken sql.NullString
+	var port sql.NullInt64
+
+	if c.IP != nil {
+		ip.String = *c.IP
+		ip.Valid = true
+	}
+	if c.Port != nil {
+		port.Int64 = int64(*c.Port)
+		port.Valid = true
+	}
+	if c.Username != nil {
+		username.String = *c.Username
+		username.Valid = true
+	}
+	if c.PasswordEncrypted != nil {
+		passwordEncrypted.String = *c.PasswordEncrypted
+		passwordEncrypted.Valid = true
+	}
+	if c.ProfileToken != nil {
+		profileToken.String = *c.ProfileToken
+		profileToken.Valid = true
+	}
+
+	err := r.db.QueryRow(ctx, query, c.Nom, c.URLRTSP, siteID, c.Statut, ip, port, username, passwordEncrypted, c.PTZSupported, profileToken).Scan(&c.ID, &c.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create camera: %w", err)
 	}
@@ -98,8 +158,8 @@ func (r *postgresRepository) Create(ctx context.Context, c *Camera) (*Camera, er
 func (r *postgresRepository) Update(ctx context.Context, c *Camera) (*Camera, error) {
 	query := `
 		UPDATE cameras
-		SET nom = $1, url_rtsp = $2, site_id = $3, statut = $4
-		WHERE id = $5`
+		SET nom = $1, url_rtsp = $2, site_id = $3, statut = $4, ip = $5, port = $6, username = $7, password_encrypted = $8, ptz_supported = $9, profile_token = $10
+		WHERE id = $11`
 
 	var siteID sql.NullString
 	if c.SiteID != nil {
@@ -107,7 +167,31 @@ func (r *postgresRepository) Update(ctx context.Context, c *Camera) (*Camera, er
 		siteID.Valid = true
 	}
 
-	tag, err := r.db.Exec(ctx, query, c.Nom, c.URLRTSP, siteID, c.Statut, c.ID)
+	var ip, username, passwordEncrypted, profileToken sql.NullString
+	var port sql.NullInt64
+
+	if c.IP != nil {
+		ip.String = *c.IP
+		ip.Valid = true
+	}
+	if c.Port != nil {
+		port.Int64 = int64(*c.Port)
+		port.Valid = true
+	}
+	if c.Username != nil {
+		username.String = *c.Username
+		username.Valid = true
+	}
+	if c.PasswordEncrypted != nil {
+		passwordEncrypted.String = *c.PasswordEncrypted
+		passwordEncrypted.Valid = true
+	}
+	if c.ProfileToken != nil {
+		profileToken.String = *c.ProfileToken
+		profileToken.Valid = true
+	}
+
+	tag, err := r.db.Exec(ctx, query, c.Nom, c.URLRTSP, siteID, c.Statut, ip, port, username, passwordEncrypted, c.PTZSupported, profileToken, c.ID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to update camera: %w", err)
 	}
