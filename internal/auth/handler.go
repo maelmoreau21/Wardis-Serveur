@@ -43,7 +43,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		h.respondWithError(w, http.StatusBadRequest, "invalid identifier format")
 		return
 	}
-	if req.Password == "" || len(req.Password) < 6 || len(req.Password) > 100 {
+	if req.Password == "" || len(req.Password) < 4 || len(req.Password) > 100 {
 		h.audit.Log(r.Context(), r, "login", "auth", "", "failed", map[string]interface{}{"email": req.Email, "reason": "invalid password length"})
 		h.respondWithError(w, http.StatusBadRequest, "invalid password length")
 		return
