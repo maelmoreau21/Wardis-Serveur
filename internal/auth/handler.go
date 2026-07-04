@@ -8,8 +8,6 @@ import (
 	"time"
 
 	"go.uber.org/zap"
-
-	"wardis-server/internal/validation"
 )
 
 type AuditLogger interface {
@@ -39,10 +37,10 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Strict email and password validation
-	if !validation.IsEmail(req.Email) {
-		h.audit.Log(r.Context(), r, "login", "auth", "", "failed", map[string]interface{}{"email": req.Email, "reason": "invalid email format"})
-		h.respondWithError(w, http.StatusBadRequest, "invalid email format")
+	// Strict username/email and password validation
+	if req.Email == "" || len(req.Email) < 3 || len(req.Email) > 254 {
+		h.audit.Log(r.Context(), r, "login", "auth", "", "failed", map[string]interface{}{"email": req.Email, "reason": "invalid identifier format"})
+		h.respondWithError(w, http.StatusBadRequest, "invalid identifier format")
 		return
 	}
 	if req.Password == "" || len(req.Password) < 6 || len(req.Password) > 100 {

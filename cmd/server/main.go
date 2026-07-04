@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
+	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
@@ -33,6 +35,56 @@ import (
 const serverVersion = "0.0.1"
 
 func main() {
+	// Command-line flags
+	createUser := flag.Bool("create-user", false, "Create a user and exit")
+	userName := flag.String("username", "", "Username of the user")
+	userPass := flag.String("password", "", "Password of the user")
+	userRole := flag.String("role", "admin", "Role of the user (admin/user)")
+	flag.Parse()
+
+	if *createUser {
+		if *userName == "" || *userPass == "" {
+			fmt.Println("Error: username and password are required to create a user.")
+			os.Exit(1)
+		}
+
+		// 1. Load configuration
+		cfg, err := config.Load()
+		if err != nil {
+			panic("failed to load configuration: " + err.Error())
+		}
+
+		// 2. Initialize logger
+		log, err := logger.Init(cfg.Env)
+		if err != nil {
+			panic("failed to initialize logger: " + err.Error())
+		}
+		defer log.Sync()
+
+		ctx := context.Background()
+		dbPool, err := database.Init(ctx, cfg.DatabaseURL, log)
+		if err != nil {
+			log.Fatal("failed to initialize database connection pool", zap.Error(err))
+		}
+		defer dbPool.Close()
+
+		authRepo := auth.NewRepository(dbPool)
+		authService := auth.NewService(authRepo, cfg.JWTSecret, cfg.JWTExpiry)
+
+		hashedPassword, err := authService.HashPassword(*userPass)
+		if err != nil {
+			log.Fatal("failed to hash password", zap.Error(err))
+		}
+
+		userObj, err := authRepo.CreateUser(ctx, *userName, hashedPassword, *userRole)
+		if err != nil {
+			log.Fatal("failed to create user", zap.Error(err))
+		}
+
+		fmt.Printf("Successfully created user: ID=%s Username=%s Role=%s\n", userObj.ID, userObj.Email, userObj.Role)
+		os.Exit(0)
+	}
+
 	// 1. Load configuration
 	cfg, err := config.Load()
 	if err != nil {
@@ -286,8 +338,8 @@ func runMigrations(databaseURL string) error {
 }
 
 func seedDefaultAdmin(ctx context.Context, authService auth.Service, repo auth.Repository, log *zap.Logger) {
-	adminEmail := "admin@wardis.com"
-	adminPassword := "password"
+	adminEmail := "root"
+	adminPassword := "root"
 
 	_, err := repo.GetUserByEmail(ctx, adminEmail)
 	if err == nil {
