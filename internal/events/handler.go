@@ -6,8 +6,17 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/gorilla/websocket"
 	"go.uber.org/zap"
 )
+
+var upgrader = websocket.Upgrader{
+	ReadBufferSize:  1024,
+	WriteBufferSize: 1024,
+	CheckOrigin: func(r *http.Request) bool {
+		return true // Allow all origins for local/Tauri requests
+	},
+}
 
 type Handler struct {
 	service Service
@@ -100,3 +109,64 @@ func (h *Handler) StreamEvents(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 }
+
+func (h *Handler) StreamEventsWS(w http.ResponseWriter, r *http.Request) {
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		h.log.Error("Failed to upgrade HTTP connection to WebSocket", zap.Error(err))
+		return
+	}
+	defer conn.Close()
+
+	h.log.Debug("Client established WebSocket events stream")
+
+	eventCh := h.service.SubscribeClient()
+	defer h.service.UnsubscribeClient(eventCh)
+
+	closeCh := make(chan struct{})
+	go func() {
+		defer close(closeCh)
+		for {
+			_, _, err := conn.ReadMessage()
+			if err != nil {
+				h.log.Debug("WebSocket read error (connection closed by client)", zap.Error(err))
+				return
+			}
+		}
+	}()
+
+	ticker := time.NewTicker(15 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-closeCh:
+			h.log.Debug("Closing WebSocket connection due to client disconnect")
+			return
+
+		case <-r.Context().Done():
+			h.log.Debug("Closing WebSocket connection due to request context cancel")
+			return
+
+		case <-ticker.C:
+			err := conn.WriteMessage(websocket.PingMessage, []byte{})
+			if err != nil {
+				h.log.Debug("Failed to send ping to WS client, closing connection", zap.Error(err))
+				return
+			}
+
+		case event, ok := <-eventCh:
+			if !ok {
+				h.log.Debug("Event channel closed, closing WebSocket connection")
+				return
+			}
+
+			err := conn.WriteJSON(event)
+			if err != nil {
+				h.log.Debug("Failed to write event to WS client, closing connection", zap.Error(err))
+				return
+			}
+		}
+	}
+}
+

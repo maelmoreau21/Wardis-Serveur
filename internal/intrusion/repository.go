@@ -26,6 +26,8 @@ type Repository interface {
 	CreateAlarm(ctx context.Context, alarm *Alarme) (*Alarme, error)
 	ListActiveAlarms(ctx context.Context) ([]Alarme, error)
 	CreateHistoryLog(ctx context.Context, log *HistoriqueAlarme) (*HistoriqueAlarme, error)
+	GetAlarmByID(ctx context.Context, id string) (*Alarme, error)
+	UpdateAlarmStatus(ctx context.Context, id string, statut string, userID *string) error
 }
 
 type postgresRepository struct {
@@ -240,3 +242,49 @@ func (r *postgresRepository) CreateHistoryLog(ctx context.Context, log *Historiq
 
 	return &res, nil
 }
+
+func (r *postgresRepository) GetAlarmByID(ctx context.Context, id string) (*Alarme, error) {
+	query := `
+		SELECT id, zone_id, capteur_id, statut, declenchee_a, acquittee_a, acquittee_par 
+		FROM alarmes 
+		WHERE id = $1`
+	
+	var al Alarme
+	var acqA sql.NullTime
+	var acqPar sql.NullString
+
+	err := r.db.QueryRow(ctx, query, id).Scan(&al.ID, &al.ZoneID, &al.CapteurID, &al.Statut, &al.DeclencheeA, &acqA, &acqPar)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrAlarmNotFound
+		}
+		return nil, fmt.Errorf("failed to get alarm by id: %w", err)
+	}
+
+	if acqA.Valid {
+		al.AcquitteeA = &acqA.Time
+	}
+	if acqPar.Valid {
+		al.AcquitteePar = &acqPar.String
+	}
+
+	return &al, nil
+}
+
+func (r *postgresRepository) UpdateAlarmStatus(ctx context.Context, id string, statut string, userID *string) error {
+	var query string
+	var err error
+	if userID != nil {
+		query = `UPDATE alarmes SET statut = $1, acquittee_a = CURRENT_TIMESTAMP, acquittee_par = $2 WHERE id = $3`
+		_, err = r.db.Exec(ctx, query, statut, *userID, id)
+	} else {
+		query = `UPDATE alarmes SET statut = $1 WHERE id = $2`
+		_, err = r.db.Exec(ctx, query, statut, id)
+	}
+
+	if err != nil {
+		return fmt.Errorf("failed to update alarm status: %w", err)
+	}
+	return nil
+}
+

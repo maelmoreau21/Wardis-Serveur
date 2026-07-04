@@ -3,6 +3,7 @@ package intrusion
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"go.uber.org/zap"
 )
@@ -14,6 +15,9 @@ type Service interface {
 	ListSensors(ctx context.Context) ([]Capteur, error)
 	TriggerSensor(ctx context.Context, sensorID string) (*Alarme, error)
 	ListActiveAlarms(ctx context.Context) ([]Alarme, error)
+	AcknowledgeAlarm(ctx context.Context, id string, userID string, username string, reason string) error
+	TransferAlarm(ctx context.Context, id string, userID string, username string, recipient string, reason string) error
+	SnoozeAlarm(ctx context.Context, id string, userID string, username string, durationMinutes int, reason string) error
 }
 
 type service struct {
@@ -195,3 +199,113 @@ func (s *service) publishNatsAlarmTriggered(ctx context.Context, alarm *Alarme) 
 		)
 	}
 }
+
+func (s *service) AcknowledgeAlarm(ctx context.Context, id string, userID string, username string, reason string) error {
+	alarm, err := s.repo.GetAlarmByID(ctx, id)
+	if err != nil {
+		return err
+	}
+
+	err = s.repo.UpdateAlarmStatus(ctx, id, "acquittee", &userID)
+	if err != nil {
+		return err
+	}
+
+	details := fmt.Sprintf("%s a acquitté l'alarme: %s", username, reason)
+	_, logErr := s.repo.CreateHistoryLog(ctx, &HistoriqueAlarme{
+		AlarmeID:  &id,
+		ZoneID:    &alarm.ZoneID,
+		CapteurID: &alarm.CapteurID,
+		Evenement: "alarme_acquittee",
+		Details:   &details,
+	})
+	if logErr != nil {
+		s.log.Error("failed to create history log for alarm acknowledgement", zap.Error(logErr))
+	}
+
+	// Publish NATS event so all clients update active alarms in real-time
+	eventPayload := map[string]interface{}{
+		"alarme_id":     id,
+		"statut":        "acquittee",
+		"acquittee_par": userID,
+		"timestamp":     time.Now(),
+		"reason":        reason,
+		"username":      username,
+	}
+	err = s.publisher.PublishEvent(ctx, "alarm.acknowledged", eventPayload)
+	if err != nil {
+		s.log.Error("failed to publish NATS alarm.acknowledged event", zap.Error(err))
+	}
+	return nil
+}
+
+func (s *service) TransferAlarm(ctx context.Context, id string, userID string, username string, recipient string, reason string) error {
+	alarm, err := s.repo.GetAlarmByID(ctx, id)
+	if err != nil {
+		return err
+	}
+
+	details := fmt.Sprintf("%s a transféré l'alarme à %s: %s", username, recipient, reason)
+	_, logErr := s.repo.CreateHistoryLog(ctx, &HistoriqueAlarme{
+		AlarmeID:  &id,
+		ZoneID:    &alarm.ZoneID,
+		CapteurID: &alarm.CapteurID,
+		Evenement: "alarme_transferee",
+		Details:   &details,
+	})
+	if logErr != nil {
+		s.log.Error("failed to create history log for alarm transfer", zap.Error(logErr))
+	}
+
+	// Publish NATS event
+	eventPayload := map[string]interface{}{
+		"alarme_id": id,
+		"statut":    "active",
+		"details":   details,
+		"timestamp": time.Now(),
+		"recipient": recipient,
+		"reason":    reason,
+		"username":  username,
+	}
+	err = s.publisher.PublishEvent(ctx, "alarm.transferred", eventPayload)
+	if err != nil {
+		s.log.Error("failed to publish NATS alarm.transferred event", zap.Error(err))
+	}
+	return nil
+}
+
+func (s *service) SnoozeAlarm(ctx context.Context, id string, userID string, username string, durationMinutes int, reason string) error {
+	alarm, err := s.repo.GetAlarmByID(ctx, id)
+	if err != nil {
+		return err
+	}
+
+	details := fmt.Sprintf("%s a reporté l'alarme de %d minutes: %s", username, durationMinutes, reason)
+	_, logErr := s.repo.CreateHistoryLog(ctx, &HistoriqueAlarme{
+		AlarmeID:  &id,
+		ZoneID:    &alarm.ZoneID,
+		CapteurID: &alarm.CapteurID,
+		Evenement: "alarme_reportee",
+		Details:   &details,
+	})
+	if logErr != nil {
+		s.log.Error("failed to create history log for alarm snooze", zap.Error(logErr))
+	}
+
+	// Publish NATS event
+	eventPayload := map[string]interface{}{
+		"alarme_id":        id,
+		"statut":           "active",
+		"details":          details,
+		"timestamp":        time.Now(),
+		"duration_minutes": durationMinutes,
+		"reason":           reason,
+		"username":         username,
+	}
+	err = s.publisher.PublishEvent(ctx, "alarm.snoozed", eventPayload)
+	if err != nil {
+		s.log.Error("failed to publish NATS alarm.snoozed event", zap.Error(err))
+	}
+	return nil
+}
+

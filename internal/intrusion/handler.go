@@ -9,6 +9,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"go.uber.org/zap"
 
+	"wardis-server/internal/auth"
 	"wardis-server/internal/validation"
 )
 
@@ -151,6 +152,132 @@ func (h *Handler) ListActiveAlarms(w http.ResponseWriter, r *http.Request) {
 	h.respondWithJSON(w, http.StatusOK, alarms)
 }
 
+func (h *Handler) AcknowledgeAlarm(w http.ResponseWriter, r *http.Request) {
+	alarmID := chi.URLParam(r, "id")
+	if alarmID == "" || !validation.IsUUID(alarmID) {
+		h.respondWithError(w, http.StatusBadRequest, "invalid alarm ID format")
+		return
+	}
+
+	claims, ok := auth.UserClaimsFromContext(r.Context())
+	if !ok {
+		h.respondWithError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	var req struct {
+		Reason string `json:"reason"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.respondWithError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	err := h.service.AcknowledgeAlarm(r.Context(), alarmID, claims.UserID, claims.Email, req.Reason)
+	if err != nil {
+		h.log.Error("failed to acknowledge alarm", zap.String("alarm_id", alarmID), zap.Error(err))
+		if errors.Is(err, ErrAlarmNotFound) {
+			h.respondWithError(w, http.StatusNotFound, "alarm not found")
+			return
+		}
+		h.respondWithError(w, http.StatusInternalServerError, "failed to acknowledge alarm")
+		return
+	}
+
+	h.audit.Log(r.Context(), r, "acknowledge_alarm", "alarm", alarmID, "success", map[string]interface{}{"reason": req.Reason})
+	h.respondWithJSON(w, http.StatusOK, map[string]string{"message": "alarm acknowledged successfully"})
+}
+
+func (h *Handler) TransferAlarm(w http.ResponseWriter, r *http.Request) {
+	alarmID := chi.URLParam(r, "id")
+	if alarmID == "" || !validation.IsUUID(alarmID) {
+		h.respondWithError(w, http.StatusBadRequest, "invalid alarm ID format")
+		return
+	}
+
+	claims, ok := auth.UserClaimsFromContext(r.Context())
+	if !ok {
+		h.respondWithError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	var req struct {
+		Recipient string `json:"recipient"`
+		Reason    string `json:"reason"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.respondWithError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.Recipient == "" {
+		h.respondWithError(w, http.StatusBadRequest, "recipient is required")
+		return
+	}
+
+	err := h.service.TransferAlarm(r.Context(), alarmID, claims.UserID, claims.Email, req.Recipient, req.Reason)
+	if err != nil {
+		h.log.Error("failed to transfer alarm", zap.String("alarm_id", alarmID), zap.Error(err))
+		if errors.Is(err, ErrAlarmNotFound) {
+			h.respondWithError(w, http.StatusNotFound, "alarm not found")
+			return
+		}
+		h.respondWithError(w, http.StatusInternalServerError, "failed to transfer alarm")
+		return
+	}
+
+	h.audit.Log(r.Context(), r, "transfer_alarm", "alarm", alarmID, "success", map[string]interface{}{
+		"recipient": req.Recipient,
+		"reason":    req.Reason,
+	})
+	h.respondWithJSON(w, http.StatusOK, map[string]string{"message": "alarm transferred successfully"})
+}
+
+func (h *Handler) SnoozeAlarm(w http.ResponseWriter, r *http.Request) {
+	alarmID := chi.URLParam(r, "id")
+	if alarmID == "" || !validation.IsUUID(alarmID) {
+		h.respondWithError(w, http.StatusBadRequest, "invalid alarm ID format")
+		return
+	}
+
+	claims, ok := auth.UserClaimsFromContext(r.Context())
+	if !ok {
+		h.respondWithError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	var req struct {
+		DurationMinutes int    `json:"duration_minutes"`
+		Reason          string `json:"reason"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.respondWithError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.DurationMinutes <= 0 {
+		h.respondWithError(w, http.StatusBadRequest, "duration_minutes must be positive")
+		return
+	}
+
+	err := h.service.SnoozeAlarm(r.Context(), alarmID, claims.UserID, claims.Email, req.DurationMinutes, req.Reason)
+	if err != nil {
+		h.log.Error("failed to snooze alarm", zap.String("alarm_id", alarmID), zap.Error(err))
+		if errors.Is(err, ErrAlarmNotFound) {
+			h.respondWithError(w, http.StatusNotFound, "alarm not found")
+			return
+		}
+		h.respondWithError(w, http.StatusInternalServerError, "failed to snooze alarm")
+		return
+	}
+
+	h.audit.Log(r.Context(), r, "snooze_alarm", "alarm", alarmID, "success", map[string]interface{}{
+		"duration_minutes": req.DurationMinutes,
+		"reason":           req.Reason,
+	})
+	h.respondWithJSON(w, http.StatusOK, map[string]string{"message": "alarm snoozed successfully"})
+}
+
 func (h *Handler) respondWithError(w http.ResponseWriter, code int, message string) {
 	h.respondWithJSON(w, code, map[string]string{"error": message})
 }
@@ -166,3 +293,4 @@ func (h *Handler) respondWithJSON(w http.ResponseWriter, code int, payload inter
 	w.WriteHeader(code)
 	w.Write(response)
 }
+

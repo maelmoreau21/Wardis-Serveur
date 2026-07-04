@@ -101,6 +101,33 @@ func (m *mockRepository) ListAccessLogs(ctx context.Context) ([]accesscontrol.Ac
 	return m.logs, nil
 }
 
+func (m *mockRepository) ListCardholders(ctx context.Context) ([]accesscontrol.Cardholder, error) {
+	return nil, nil
+}
+
+func (m *mockRepository) GetCardholderByID(ctx context.Context, id string) (*accesscontrol.Cardholder, error) {
+	return &accesscontrol.Cardholder{
+		ID:        id,
+		FirstName: "Mocked",
+		LastName:  "Cardholder",
+		Photo:     "mocked_photo",
+	}, nil
+}
+
+func (m *mockRepository) CreateCardholder(ctx context.Context, c *accesscontrol.Cardholder) (*accesscontrol.Cardholder, error) {
+	c.ID = "cardholder-uuid-mocked"
+	return c, nil
+}
+
+func (m *mockRepository) UpdateCardholder(ctx context.Context, id string, c *accesscontrol.Cardholder) (*accesscontrol.Cardholder, error) {
+	c.ID = id
+	return c, nil
+}
+
+func (m *mockRepository) DeleteCardholder(ctx context.Context, id string) error {
+	return nil
+}
+
 func TestAccessControlService(t *testing.T) {
 	ctx := context.Background()
 	logger := zap.NewNop()

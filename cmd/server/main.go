@@ -281,10 +281,14 @@ func main() {
 		r.Get("/capteurs", intrusionHandler.ListSensors)
 		r.Post("/capteurs/{id}/trigger", intrusionHandler.TriggerSensor)
 		r.Get("/alarmes/active", intrusionHandler.ListActiveAlarms)
+		r.Post("/alarmes/{id}/acquit", intrusionHandler.AcknowledgeAlarm)
+		r.Post("/alarmes/{id}/transfer", intrusionHandler.TransferAlarm)
+		r.Post("/alarmes/{id}/delay", intrusionHandler.SnoozeAlarm)
 
 		// Events Routes
 		r.Get("/events", eventsHandler.ListEvents)
 		r.Get("/events/stream", eventsHandler.StreamEvents)
+		r.Get("/events/ws", eventsHandler.StreamEventsWS)
 
 		// Admin only access control routes
 		r.Group(func(r chi.Router) {
@@ -293,6 +297,10 @@ func main() {
 			r.Post("/doors/{id}/open", acHandler.OpenDoor)
 			r.Post("/doors/{id}/close", acHandler.CloseDoor)
 			r.Get("/access-logs", acHandler.ListAccessLogs)
+			r.Get("/cardholders", acHandler.ListCardholders)
+			r.Post("/cardholders", acHandler.CreateCardholder)
+			r.Put("/cardholders/{id}", acHandler.UpdateCardholder)
+			r.Delete("/cardholders/{id}", acHandler.DeleteCardholder)
 
 			// User Management Routes
 			r.Get("/api/users", authHandler.ListUsers)

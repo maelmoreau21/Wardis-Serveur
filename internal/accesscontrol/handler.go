@@ -170,6 +170,108 @@ func (h *Handler) ListAccessLogs(w http.ResponseWriter, r *http.Request) {
 	h.respondWithJSON(w, http.StatusOK, logs)
 }
 
+func (h *Handler) ListCardholders(w http.ResponseWriter, r *http.Request) {
+	list, err := h.service.ListCardholders(r.Context())
+	if err != nil {
+		h.log.Error("failed to list cardholders", zap.Error(err))
+		h.respondWithError(w, http.StatusInternalServerError, "failed to list cardholders")
+		return
+	}
+	h.respondWithJSON(w, http.StatusOK, list)
+}
+
+func (h *Handler) CreateCardholder(w http.ResponseWriter, r *http.Request) {
+	var req CardholderRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.respondWithError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.FirstName == "" || req.LastName == "" {
+		h.respondWithError(w, http.StatusBadRequest, "first_name and last_name are required")
+		return
+	}
+
+	c := &Cardholder{
+		FirstName:   req.FirstName,
+		LastName:    req.LastName,
+		Company:     req.Company,
+		Email:       req.Email,
+		Photo:       req.Photo,
+		AccessGroup: req.AccessGroup,
+		Schedule:    req.Schedule,
+		BadgeNumber: req.BadgeNumber,
+	}
+
+	res, err := h.service.CreateCardholder(r.Context(), c)
+	if err != nil {
+		h.log.Error("failed to create cardholder", zap.Error(err))
+		h.respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	h.audit.Log(r.Context(), r, "create_cardholder", "cardholder", res.ID, "success", map[string]interface{}{"name": res.FirstName + " " + res.LastName})
+	h.respondWithJSON(w, http.StatusCreated, res)
+}
+
+func (h *Handler) UpdateCardholder(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if id == "" || !validation.IsUUID(id) {
+		h.respondWithError(w, http.StatusBadRequest, "invalid cardholder ID format")
+		return
+	}
+
+	var req CardholderRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.respondWithError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.FirstName == "" || req.LastName == "" {
+		h.respondWithError(w, http.StatusBadRequest, "first_name and last_name are required")
+		return
+	}
+
+	c := &Cardholder{
+		FirstName:   req.FirstName,
+		LastName:    req.LastName,
+		Company:     req.Company,
+		Email:       req.Email,
+		Photo:       req.Photo,
+		AccessGroup: req.AccessGroup,
+		Schedule:    req.Schedule,
+		BadgeNumber: req.BadgeNumber,
+	}
+
+	res, err := h.service.UpdateCardholder(r.Context(), id, c)
+	if err != nil {
+		h.log.Error("failed to update cardholder", zap.String("id", id), zap.Error(err))
+		h.respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	h.audit.Log(r.Context(), r, "update_cardholder", "cardholder", id, "success", map[string]interface{}{"name": res.FirstName + " " + res.LastName})
+	h.respondWithJSON(w, http.StatusOK, res)
+}
+
+func (h *Handler) DeleteCardholder(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if id == "" || !validation.IsUUID(id) {
+		h.respondWithError(w, http.StatusBadRequest, "invalid cardholder ID format")
+		return
+	}
+
+	err := h.service.DeleteCardholder(r.Context(), id)
+	if err != nil {
+		h.log.Error("failed to delete cardholder", zap.String("id", id), zap.Error(err))
+		h.respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	h.audit.Log(r.Context(), r, "delete_cardholder", "cardholder", id, "success", nil)
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (h *Handler) respondWithError(w http.ResponseWriter, code int, message string) {
 	h.respondWithJSON(w, code, map[string]string{"error": message})
 }

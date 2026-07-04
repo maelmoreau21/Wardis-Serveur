@@ -15,6 +15,10 @@ type Service interface {
 	CloseDoor(ctx context.Context, id string) error
 	SwipeBadge(ctx context.Context, doorID string, number string) (*SwipeBadgeResponse, error)
 	ListAccessLogs(ctx context.Context) ([]AccessLog, error)
+	ListCardholders(ctx context.Context) ([]Cardholder, error)
+	CreateCardholder(ctx context.Context, c *Cardholder) (*Cardholder, error)
+	UpdateCardholder(ctx context.Context, id string, c *Cardholder) (*Cardholder, error)
+	DeleteCardholder(ctx context.Context, id string) error
 }
 
 type service struct {
@@ -33,6 +37,22 @@ func NewService(repo Repository, publisher EventPublisher, log *zap.Logger) Serv
 
 func (s *service) ListDoors(ctx context.Context) ([]Door, error) {
 	return s.repo.ListDoors(ctx)
+}
+
+func (s *service) ListCardholders(ctx context.Context) ([]Cardholder, error) {
+	return s.repo.ListCardholders(ctx)
+}
+
+func (s *service) CreateCardholder(ctx context.Context, c *Cardholder) (*Cardholder, error) {
+	return s.repo.CreateCardholder(ctx, c)
+}
+
+func (s *service) UpdateCardholder(ctx context.Context, id string, c *Cardholder) (*Cardholder, error) {
+	return s.repo.UpdateCardholder(ctx, id, c)
+}
+
+func (s *service) DeleteCardholder(ctx context.Context, id string) error {
+	return s.repo.DeleteCardholder(ctx, id)
 }
 
 func (s *service) AssignBadge(ctx context.Context, number string, userID string) (*Badge, error) {
@@ -106,6 +126,7 @@ func (s *service) SwipeBadge(ctx context.Context, doorID string, number string) 
 			DoorID:       &doorID,
 			SiteID:       siteID,
 			UserID:       badge.UserID,
+			CardholderID: badge.CardholderID,
 			AccessType:   "denied",
 			DeniedReason: &reason,
 		})
@@ -132,6 +153,7 @@ func (s *service) SwipeBadge(ctx context.Context, doorID string, number string) 
 			DoorID:       &doorID,
 			SiteID:       siteID,
 			UserID:       badge.UserID,
+			CardholderID: badge.CardholderID,
 			AccessType:   "denied",
 			DeniedReason: &reason,
 		})
@@ -146,16 +168,26 @@ func (s *service) SwipeBadge(ctx context.Context, doorID string, number string) 
 
 	// 5. Access Granted
 	logRecord, logErr := s.repo.CreateAccessLog(ctx, &AccessLog{
-		BadgeID:    &badge.ID,
-		BadgeNumber: badge.Number,
-		DoorID:     &doorID,
-		SiteID:     siteID,
-		UserID:     badge.UserID,
-		AccessType: "granted",
+		BadgeID:      &badge.ID,
+		BadgeNumber:  badge.Number,
+		DoorID:       &doorID,
+		SiteID:       siteID,
+		UserID:       badge.UserID,
+		CardholderID: badge.CardholderID,
+		AccessType:   "granted",
 	})
 	if logErr != nil {
 		s.log.Error("failed to create access log on success", zap.Error(logErr))
 	} else {
+		// Populate Cardholder Name/Photo for the live NATS event
+		if badge.CardholderID != nil {
+			ch, err := s.repo.GetCardholderByID(ctx, *badge.CardholderID)
+			if err == nil {
+				fullName := ch.FirstName + " " + ch.LastName
+				logRecord.CardholderName = &fullName
+				logRecord.CardholderPhoto = &ch.Photo
+			}
+		}
 		s.publishNatsEvent(ctx, true, logRecord)
 	}
 
@@ -171,14 +203,17 @@ func (s *service) ListAccessLogs(ctx context.Context) ([]AccessLog, error) {
 
 func (s *service) publishNatsEvent(ctx context.Context, granted bool, log *AccessLog) {
 	payload := map[string]interface{}{
-		"log_id":        log.ID,
-		"badge_number":  log.BadgeNumber,
-		"door_id":       log.DoorID,
-		"site_id":       log.SiteID,
-		"user_id":       log.UserID,
-		"access_type":   log.AccessType,
-		"denied_reason": log.DeniedReason,
-		"timestamp":     log.CreatedAt,
+		"log_id":           log.ID,
+		"badge_number":     log.BadgeNumber,
+		"door_id":          log.DoorID,
+		"site_id":          log.SiteID,
+		"user_id":          log.UserID,
+		"cardholder_id":    log.CardholderID,
+		"cardholder_name":  log.CardholderName,
+		"cardholder_photo": log.CardholderPhoto,
+		"access_type":      log.AccessType,
+		"denied_reason":    log.DeniedReason,
+		"timestamp":        log.CreatedAt,
 	}
 
 	var err error

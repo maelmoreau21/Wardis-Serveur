@@ -22,6 +22,7 @@ type Repository interface {
 	GetClosestCameraForDoor(ctx context.Context, doorID string) (*ClosestCamera, error)
 	GetLastBadgeSwipeInZone(ctx context.Context, zoneID string) (*LastBadgeSwipe, error)
 	GetZoneIDForDoor(ctx context.Context, doorID string) (string, error)
+	GetAlarmMetadata(ctx context.Context, alarmID string) (zoneID string, capteurID string, err error)
 }
 
 type postgresRepository struct {
@@ -222,3 +223,13 @@ func (r *postgresRepository) GetZoneIDForDoor(ctx context.Context, doorID string
 	}
 	return zoneID.String, nil
 }
+
+func (r *postgresRepository) GetAlarmMetadata(ctx context.Context, alarmID string) (zoneID string, capteurID string, err error) {
+	query := `SELECT zone_id, capteur_id FROM alarmes WHERE id = $1`
+	err = r.db.QueryRow(ctx, query, alarmID).Scan(&zoneID, &capteurID)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to query alarm metadata: %w", err)
+	}
+	return zoneID, capteurID, nil
+}
+

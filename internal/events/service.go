@@ -112,8 +112,12 @@ func (s *service) handleNatsMessage(msg *nats.Msg) {
 	var correlated *CorrelatedEvent
 	var err error
 
-	if msg.Subject == "alarm.triggered" {
-		correlated, err = s.correlateAlarmEvent(ctx, msg.Data)
+	if strings.HasPrefix(msg.Subject, "alarm.") {
+		if msg.Subject == "alarm.triggered" {
+			correlated, err = s.correlateAlarmEvent(ctx, msg.Data)
+		} else {
+			correlated, err = s.correlateAlarmActionEvent(ctx, msg.Subject, msg.Data)
+		}
 	} else if strings.HasPrefix(msg.Subject, "access.") {
 		correlated, err = s.correlateAccessEvent(ctx, msg.Subject, msg.Data)
 	} else if strings.HasPrefix(msg.Subject, "video.") {
@@ -274,6 +278,47 @@ func (s *service) correlateVideoEvent(ctx context.Context, subject string, data 
 
 	if payload.Timestamp.IsZero() {
 		correlated.Timestamp = time.Now()
+	}
+
+	return correlated, nil
+}
+
+func (s *service) correlateAlarmActionEvent(ctx context.Context, subject string, data []byte) (*CorrelatedEvent, error) {
+	var payload map[string]interface{}
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal alarm action payload: %w", err)
+	}
+
+	alarmID, _ := payload["alarme_id"].(string)
+
+	var zoneIDPtr *string
+	var capteurIDPtr *string
+	if alarmID != "" {
+		zID, cID, err := s.repo.GetAlarmMetadata(ctx, alarmID)
+		if err == nil {
+			zoneIDPtr = &zID
+			capteurIDPtr = &cID
+		}
+	}
+
+	timestamp := time.Now()
+	if tStr, ok := payload["timestamp"].(string); ok {
+		if parsed, err := time.Parse(time.RFC3339, tStr); err == nil {
+			timestamp = parsed
+		}
+	} else if tVal, ok := payload["timestamp"].(time.Time); ok {
+		timestamp = tVal
+	}
+
+	correlated := &CorrelatedEvent{
+		EventType:   subject,
+		SourceID:    alarmID,
+		ZoneID:      zoneIDPtr,
+		CapteurID:   capteurIDPtr,
+		Timestamp:   timestamp,
+		Details: CorrelationDetails{
+			Payload: payload,
+		},
 	}
 
 	return correlated, nil

@@ -10,6 +10,7 @@ import (
 
 type EventPublisher interface {
 	PublishAlarmTriggered(ctx context.Context, payload interface{}) error
+	PublishEvent(ctx context.Context, subject string, payload interface{}) error
 	Close()
 }
 
@@ -33,8 +34,17 @@ func (p *natsPublisher) PublishAlarmTriggered(ctx context.Context, payload inter
 	return p.nc.Publish("alarm.triggered", data)
 }
 
+func (p *natsPublisher) PublishEvent(ctx context.Context, subject string, payload interface{}) error {
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal event %s: %w", subject, err)
+	}
+	return p.nc.Publish(subject, data)
+}
+
 func (p *natsPublisher) Close() {
 	if p.nc != nil {
 		p.nc.Close()
 	}
 }
+

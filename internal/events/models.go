@@ -12,12 +12,15 @@ type ClosestCamera struct {
 }
 
 type LastBadgeSwipe struct {
-	LogID       string     `json:"log_id"`
-	BadgeNumber string     `json:"badge_number"`
-	DoorID      *string    `json:"door_id,omitempty"`
-	UserID      *string    `json:"user_id,omitempty"`
-	AccessType  string     `json:"access_type"` // "granted" or "denied"
-	Timestamp   time.Time  `json:"timestamp"`
+	LogID           string     `json:"log_id"`
+	BadgeNumber     string     `json:"badge_number"`
+	DoorID          *string    `json:"door_id,omitempty"`
+	UserID          *string    `json:"user_id,omitempty"`
+	CardholderID    *string    `json:"cardholder_id,omitempty"`
+	CardholderName  *string    `json:"cardholder_name,omitempty"`
+	CardholderPhoto *string    `json:"cardholder_photo,omitempty"`
+	AccessType      string     `json:"access_type"` // "granted" or "denied"
+	Timestamp       time.Time  `json:"timestamp"`
 }
 
 type CorrelationDetails struct {
@@ -51,14 +54,17 @@ type AlarmEventPayload struct {
 }
 
 type AccessEventPayload struct {
-	LogID        string    `json:"log_id"`
-	BadgeNumber  string    `json:"badge_number"`
-	DoorID       *string   `json:"door_id,omitempty"`
-	SiteID       *string   `json:"site_id,omitempty"`
-	UserID       *string   `json:"user_id,omitempty"`
-	AccessType   string    `json:"access_type"` // "granted" or "denied"
-	DeniedReason *string   `json:"denied_reason,omitempty"`
-	Timestamp    time.Time `json:"timestamp"`
+	LogID           string    `json:"log_id"`
+	BadgeNumber     string    `json:"badge_number"`
+	DoorID          *string   `json:"door_id,omitempty"`
+	SiteID          *string   `json:"site_id,omitempty"`
+	UserID          *string   `json:"user_id,omitempty"`
+	CardholderID    *string   `json:"cardholder_id,omitempty"`
+	CardholderName  *string   `json:"cardholder_name,omitempty"`
+	CardholderPhoto *string   `json:"cardholder_photo,omitempty"`
+	AccessType      string    `json:"access_type"` // "granted" or "denied"
+	DeniedReason    *string   `json:"denied_reason,omitempty"`
+	Timestamp       time.Time `json:"timestamp"`
 }
 
 type VideoEventPayload struct {
