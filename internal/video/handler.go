@@ -552,3 +552,40 @@ func (h *Handler) ExportVideo(w http.ResponseWriter, r *http.Request) {
 		h.log.Error("failed to write export ZIP to response stream", zap.Error(err))
 	}
 }
+
+type PTZRequest struct {
+	Pan  float64 `json:"pan"`
+	Tilt float64 `json:"tilt"`
+	Zoom float64 `json:"zoom"`
+}
+
+func (h *Handler) SendPTZCommand(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if id == "" || !validation.IsUUID(id) {
+		h.respondWithError(w, http.StatusBadRequest, "invalid camera ID format")
+		return
+	}
+
+	var req PTZRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.respondWithError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	err := h.service.SendPTZCommand(r.Context(), id, req.Pan, req.Tilt, req.Zoom)
+	if err != nil {
+		h.audit.Log(r.Context(), r, "ptz_command", "camera", id, "failed", map[string]interface{}{"error": err.Error(), "pan": req.Pan, "tilt": req.Tilt, "zoom": req.Zoom})
+		if errors.Is(err, ErrCameraNotFound) {
+			h.respondWithError(w, http.StatusNotFound, "camera not found")
+			return
+		}
+		h.log.Error("failed to send PTZ command", zap.String("camera_id", id), zap.Error(err))
+		h.respondWithError(w, http.StatusInternalServerError, "failed to execute PTZ command: "+err.Error())
+		return
+	}
+
+	h.audit.Log(r.Context(), r, "ptz_command", "camera", id, "success", map[string]interface{}{"pan": req.Pan, "tilt": req.Tilt, "zoom": req.Zoom})
+	h.respondWithJSON(w, http.StatusOK, map[string]string{
+		"message": "PTZ command executed successfully",
+	})
+}

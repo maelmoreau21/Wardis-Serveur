@@ -447,3 +447,28 @@ func SendSOAPRequest(ctx context.Context, endpoint string, request interface{}, 
 
 	return &soapResp, nil
 }
+
+// PTZ SOAP Request Models
+
+type Vector2D struct {
+	X float64 `xml:"x,attr"`
+	Y float64 `xml:"y,attr"`
+}
+
+type Vector1D struct {
+	X float64 `xml:"x,attr"`
+}
+
+type PTZSpeed struct {
+	PanTilt *Vector2D `xml:"tt:PanTilt,omitempty"`
+	Zoom    *Vector1D `xml:"tt:Zoom,omitempty"`
+}
+
+type ContinuousMove struct {
+	XMLName      xml.Name  `xml:"tptz:ContinuousMove"`
+	XmlnsTptz    string    `xml:"xmlns:tptz,attr"`
+	XmlnsTt      string    `xml:"xmlns:tt,attr"`
+	ProfileToken string    `xml:"tptz:ProfileToken"`
+	Velocity     PTZSpeed  `xml:"tptz:Velocity"`
+	Timeout      string    `xml:"tptz:Timeout,omitempty"`
+}

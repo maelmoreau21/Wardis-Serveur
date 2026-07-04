@@ -76,12 +76,37 @@ services:
       MTX_WEBRTC: "yes"
       MTX_WEBRTCADDRESS: ":8889"
       MTX_AUTHMETHOD: "http"
-      MTX_AUTHHTTPADDRESS: "http://host.docker.internal:8080/cameras/auth"
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+      MTX_AUTHHTTPADDRESS: "http://server:8080/cameras/auth"
     restart: unless-stopped
+
+  server:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: wardis-server-dev
+    ports:
+      - "8080:8080"
+    env_file:
+      - ../.env
+    environment:
+      - DATABASE_URL=postgres://wardis_user:wardis_password@postgres:5432/wardis_db?sslmode=disable
+      - NATS_URL=nats://nats:4222
+      - MEDIAMTX_API_URL=http://mediamtx:9997
+      - MINIO_ENDPOINT=minio:9000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    volumes:
+      - ../data/recordings:/app/data/recordings
 
 volumes:
   postgres_data:
   redis_data:
   minio_data:
+

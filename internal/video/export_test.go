@@ -103,6 +103,10 @@ func (m *mockAuthService) GetUserByID(ctx context.Context, id string) (*auth.Use
 	return nil, nil
 }
 
+func (m *mockAuthService) CheckEntityPermission(ctx context.Context, userID string, permissionName string, entityType string, entityID string) (bool, error) {
+	return true, nil
+}
+
 func TestExportVideoService(t *testing.T) {
 	ctx := context.Background()
 	logger := zap.NewNop()

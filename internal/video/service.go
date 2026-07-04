@@ -40,6 +40,7 @@ type Service interface {
 	DiscoverCameras(ctx context.Context, username, password string, timeout time.Duration) ([]DiscoveredCamera, error)
 	ConfigureWHEPStream(ctx context.Context, cameraID string) error
 	ExportVideo(ctx context.Context, cameraID string, start, end time.Time, operatorID string) ([]byte, string, error)
+	SendPTZCommand(ctx context.Context, cameraID string, pan, tilt, zoom float64) error
 
 	// Lifecycle & synchronization methods
 	Start(ctx context.Context) error
@@ -649,4 +650,108 @@ func (s *service) ExportVideo(ctx context.Context, cameraID string, start, end t
 
 	filename := fmt.Sprintf("export_%s_%d.zip", cameraID, time.Now().Unix())
 	return zipBuffer.Bytes(), filename, nil
+}
+
+func (s *service) SendPTZCommand(ctx context.Context, cameraID string, pan, tilt, zoom float64) error {
+	cam, err := s.repo.GetByID(ctx, cameraID)
+	if err != nil {
+		return fmt.Errorf("camera lookup failed: %w", err)
+	}
+
+	if !cam.PTZSupported {
+		s.log.Warn("PTZ not supported for camera", zap.String("camera_id", cameraID))
+		return fmt.Errorf("PTZ not supported for this camera")
+	}
+
+	if cam.IP == nil || cam.Port == nil {
+		return fmt.Errorf("camera IP/port configuration missing for PTZ")
+	}
+
+	// Retrieve credentials
+	username := ""
+	if cam.Username != nil {
+		username = *cam.Username
+	}
+
+	password := ""
+	if cam.PasswordEncrypted != nil && *cam.PasswordEncrypted != "" {
+		decrypted, err := DecryptPassword(*cam.PasswordEncrypted, s.jwtSecret)
+		if err != nil {
+			return fmt.Errorf("failed to decrypt camera credentials: %w", err)
+		}
+		password = decrypted
+	}
+
+	// 1. Determine PTZ endpoint
+	endpointURL := fmt.Sprintf("http://%s:%d/onvif/device_service", *cam.IP, *cam.Port)
+	capReq := GetCapabilities{
+		Xmlns:    "http://www.onvif.org/ver10/device/wsdl",
+		Category: "All",
+	}
+
+	capResp, err := SendSOAPRequest(ctx, endpointURL, capReq, username, password)
+	if err != nil {
+		return fmt.Errorf("failed to retrieve camera capabilities for PTZ: %w", err)
+	}
+
+	ptzURL := capResp.Body.GetCapabilitiesResponse.Capabilities.PTZ.XAddr
+	if ptzURL == "" {
+		return fmt.Errorf("camera does not expose PTZ service endpoint")
+	}
+
+	// 2. Prepare Profile Token
+	profileToken := ""
+	if cam.ProfileToken != nil && *cam.ProfileToken != "" {
+		profileToken = *cam.ProfileToken
+	}
+
+	if profileToken == "" {
+		mediaURL := capResp.Body.GetCapabilitiesResponse.Capabilities.Media.XAddr
+		if mediaURL == "" {
+			return fmt.Errorf("media service endpoint not found to query profile token")
+		}
+		profReq := GetProfiles{
+			Xmlns: "http://www.onvif.org/ver10/media/wsdl",
+		}
+		profResp, err := SendSOAPRequest(ctx, mediaURL, profReq, username, password)
+		if err != nil {
+			return fmt.Errorf("failed to retrieve camera profiles for PTZ: %w", err)
+		}
+		if len(profResp.Body.GetProfilesResponse.Profiles) == 0 {
+			return fmt.Errorf("no media profiles found on camera")
+		}
+		profileToken = profResp.Body.GetProfilesResponse.Profiles[0].Token
+	}
+
+	// 3. Construct ContinuousMove request
+	ptzReq := ContinuousMove{
+		XmlnsTptz:    "http://www.onvif.org/ver10/ptz/wsdl",
+		XmlnsTt:      "http://www.onvif.org/ver10/schema",
+		ProfileToken: profileToken,
+		Velocity: PTZSpeed{
+			PanTilt: &Vector2D{
+				X: pan,
+				Y: tilt,
+			},
+			Zoom: &Vector1D{
+				X: zoom,
+			},
+		},
+		Timeout: "PT1S",
+	}
+
+	s.log.Debug("Sending SOAP ContinuousMove request",
+		zap.String("camera_id", cameraID),
+		zap.String("ptz_url", ptzURL),
+		zap.Float64("pan", pan),
+		zap.Float64("tilt", tilt),
+		zap.Float64("zoom", zoom),
+	)
+
+	_, err = SendSOAPRequest(ctx, ptzURL, ptzReq, username, password)
+	if err != nil {
+		return fmt.Errorf("SOAP ContinuousMove failed: %w", err)
+	}
+
+	return nil
 }
