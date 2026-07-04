@@ -45,3 +45,26 @@ type MeResponse struct {
 	Role        string   `json:"role"`
 	Permissions []string `json:"permissions"`
 }
+
+type EntityPermission struct {
+	EntityID       string `json:"entity_id"`
+	EntityType     string `json:"entity_type"`
+	PermissionName string `json:"permission_name"`
+	Allowed        bool   `json:"allowed"`
+}
+
+type UpdatePasswordRequest struct {
+	CurrentPassword string `json:"current_password"`
+	NewPassword     string `json:"new_password"`
+}
+
+type CreateUserRequest struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+	RoleName string `json:"role_name"`
+}
+
+type SaveEntityPermissionsRequest struct {
+	EntityPermissions []EntityPermission `json:"entity_permissions"`
+}
+

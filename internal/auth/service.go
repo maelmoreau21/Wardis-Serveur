@@ -29,6 +29,14 @@ type Service interface {
 	HashPassword(password string) (string, error)
 	GetUserByID(ctx context.Context, id string) (*User, error)
 	CheckEntityPermission(ctx context.Context, userID string, permissionName string, entityType string, entityID string) (bool, error)
+	UpdatePassword(ctx context.Context, id string, currentPassword, newPassword string) error
+	ListUsers(ctx context.Context) ([]User, error)
+	CreateUser(ctx context.Context, email, password, roleName string) (*User, error)
+	DeleteUser(ctx context.Context, id string) error
+	ListRoles(ctx context.Context) ([]Role, error)
+	ListPermissions(ctx context.Context) ([]Permission, error)
+	GetEntityPermissionsForUser(ctx context.Context, userID string) ([]EntityPermission, error)
+	SaveEntityPermissions(ctx context.Context, userID string, entityPermissions []EntityPermission) error
 }
 
 type service struct {
@@ -128,4 +136,55 @@ func (s *service) GetUserByID(ctx context.Context, id string) (*User, error) {
 
 func (s *service) CheckEntityPermission(ctx context.Context, userID string, permissionName string, entityType string, entityID string) (bool, error) {
 	return s.repo.CheckEntityPermission(ctx, userID, permissionName, entityType, entityID)
+}
+
+func (s *service) UpdatePassword(ctx context.Context, id string, currentPassword, newPassword string) error {
+	user, err := s.repo.GetUserByID(ctx, id)
+	if err != nil {
+		return err
+	}
+
+	err = bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(currentPassword))
+	if err != nil {
+		return ErrInvalidCredentials
+	}
+
+	hashed, err := s.HashPassword(newPassword)
+	if err != nil {
+		return err
+	}
+
+	return s.repo.UpdatePassword(ctx, id, hashed)
+}
+
+func (s *service) ListUsers(ctx context.Context) ([]User, error) {
+	return s.repo.ListUsers(ctx)
+}
+
+func (s *service) CreateUser(ctx context.Context, email, password, roleName string) (*User, error) {
+	hashed, err := s.HashPassword(password)
+	if err != nil {
+		return nil, err
+	}
+	return s.repo.CreateUser(ctx, email, hashed, roleName)
+}
+
+func (s *service) DeleteUser(ctx context.Context, id string) error {
+	return s.repo.DeleteUser(ctx, id)
+}
+
+func (s *service) ListRoles(ctx context.Context) ([]Role, error) {
+	return s.repo.ListRoles(ctx)
+}
+
+func (s *service) ListPermissions(ctx context.Context) ([]Permission, error) {
+	return s.repo.ListPermissions(ctx)
+}
+
+func (s *service) GetEntityPermissionsForUser(ctx context.Context, userID string) ([]EntityPermission, error) {
+	return s.repo.GetEntityPermissionsForUser(ctx, userID)
+}
+
+func (s *service) SaveEntityPermissions(ctx context.Context, userID string, entityPermissions []EntityPermission) error {
+	return s.repo.SaveEntityPermissions(ctx, userID, entityPermissions)
 }

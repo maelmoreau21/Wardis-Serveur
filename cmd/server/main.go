@@ -258,6 +258,7 @@ func main() {
 	r.Group(func(r chi.Router) {
 		r.Use(auth.AuthMiddleware(authService))
 		r.Get("/me", authHandler.Me)
+		r.Put("/api/auth/me/password", authHandler.UpdatePassword)
 
 		// Access Control Routes
 		r.Get("/doors", acHandler.ListDoors)
@@ -292,6 +293,15 @@ func main() {
 			r.Post("/doors/{id}/open", acHandler.OpenDoor)
 			r.Post("/doors/{id}/close", acHandler.CloseDoor)
 			r.Get("/access-logs", acHandler.ListAccessLogs)
+
+			// User Management Routes
+			r.Get("/api/users", authHandler.ListUsers)
+			r.Post("/api/users", authHandler.CreateUser)
+			r.Delete("/api/users/{id}", authHandler.DeleteUser)
+			r.Get("/api/roles", authHandler.ListRoles)
+			r.Get("/api/permissions", authHandler.ListPermissions)
+			r.Get("/api/users/{id}/permissions", authHandler.GetEntityPermissionsForUser)
+			r.Post("/api/users/{id}/permissions", authHandler.SaveEntityPermissions)
 
 			// Video Admin Routes
 			r.Post("/cameras", videoHandler.CreateCamera)
