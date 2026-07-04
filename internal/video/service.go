@@ -1,8 +1,17 @@
 package video
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -12,6 +21,10 @@ import (
 	"go.uber.org/zap"
 
 	"wardis-server/internal/config"
+)
+
+var (
+	ErrNoRecordingsFound = errors.New("no video recordings found for the specified period")
 )
 
 type Service interface {
@@ -26,6 +39,7 @@ type Service interface {
 	SyncWithMediaMTX(ctx context.Context) error
 	DiscoverCameras(ctx context.Context, username, password string, timeout time.Duration) ([]DiscoveredCamera, error)
 	ConfigureWHEPStream(ctx context.Context, cameraID string) error
+	ExportVideo(ctx context.Context, cameraID string, start, end time.Time, operatorID string) ([]byte, string, error)
 
 	// Lifecycle & synchronization methods
 	Start(ctx context.Context) error
@@ -514,4 +528,125 @@ func (s *service) ConfigureWHEPStream(ctx context.Context, cameraID string) erro
 	}
 
 	return nil
+}
+
+func (s *service) ExportVideo(ctx context.Context, cameraID string, start, end time.Time, operatorID string) ([]byte, string, error) {
+	// 1. Retrieve camera details
+	camera, err := s.repo.GetByID(ctx, cameraID)
+	if err != nil {
+		return nil, "", err
+	}
+
+	// 2. Query all recordings in the time frame
+	recordings, err := s.repo.GetOverlappingRecordings(ctx, cameraID, start, end)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to retrieve recordings: %w", err)
+	}
+	if len(recordings) == 0 {
+		return nil, "", ErrNoRecordingsFound
+	}
+
+	// 3. Fetch video data for each segment and concatenate
+	var videoBuffer bytes.Buffer
+	for _, rec := range recordings {
+		var data []byte
+		var err error
+		if rec.StorageType == "local" {
+			localPath := filepath.Join(s.cfg.RecordingsLocalDir, rec.Filepath)
+			data, err = os.ReadFile(localPath)
+			if err != nil {
+				return nil, "", fmt.Errorf("failed to read local video file %s: %w", localPath, err)
+			}
+		} else if rec.StorageType == "cloud" {
+			if s.minioClient == nil {
+				return nil, "", fmt.Errorf("MinIO client is not initialized to retrieve cloud recording %s", rec.ID)
+			}
+			// Parse cloud filepath (e.g. minio://bucket/camera_uuid/filename.mp4)
+			trimmed := strings.TrimPrefix(rec.Filepath, "minio://")
+			parts := strings.SplitN(trimmed, "/", 2)
+			if len(parts) != 2 {
+				return nil, "", fmt.Errorf("invalid cloud storage URL: %s", rec.Filepath)
+			}
+			bucket := parts[0]
+			objectKey := parts[1]
+
+			obj, err := s.minioClient.GetObject(ctx, bucket, objectKey, minio.GetObjectOptions{})
+			if err != nil {
+				return nil, "", fmt.Errorf("failed to download video from MinIO: %w", err)
+			}
+			defer obj.Close()
+
+			data, err = io.ReadAll(obj)
+			if err != nil {
+				return nil, "", fmt.Errorf("failed to read video download from MinIO: %w", err)
+			}
+		} else {
+			return nil, "", fmt.Errorf("unknown storage type: %s", rec.StorageType)
+		}
+		videoBuffer.Write(data)
+	}
+
+	concatenatedBytes := videoBuffer.Bytes()
+
+	// 4. Calculate cryptographic SHA-256 checksum
+	hash := sha256.Sum256(concatenatedBytes)
+	hashHex := fmt.Sprintf("%x", hash)
+
+	// 5. Generate JSON manifest metadata
+	type CameraExportMetadata struct {
+		ID           string  `json:"id"`
+		Nom          string  `json:"nom"`
+		URLRTSP      string  `json:"url_rtsp"`
+		SiteID       *string `json:"site_id,omitempty"`
+		Statut       string  `json:"statut"`
+		PTZSupported bool    `json:"ptz_supported"`
+	}
+
+	manifest := map[string]interface{}{
+		"export_date": time.Now().Format(time.RFC3339),
+		"operator_id": operatorID,
+		"camera": CameraExportMetadata{
+			ID:           camera.ID,
+			Nom:          camera.Nom,
+			URLRTSP:      camera.URLRTSP,
+			SiteID:       camera.SiteID,
+			Statut:       camera.Statut,
+			PTZSupported: camera.PTZSupported,
+		},
+		"sha256": hashHex,
+	}
+
+	manifestBytes, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to marshal export manifest: %w", err)
+	}
+
+	// 6. Build ZIP archive
+	zipBuffer := new(bytes.Buffer)
+	zipWriter := zip.NewWriter(zipBuffer)
+
+	// Add video.mp4
+	videoFile, err := zipWriter.Create("video.mp4")
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to create video entry in zip: %w", err)
+	}
+	if _, err := videoFile.Write(concatenatedBytes); err != nil {
+		return nil, "", fmt.Errorf("failed to write video to zip: %w", err)
+	}
+
+	// Add manifest.json
+	manifestFile, err := zipWriter.Create("manifest.json")
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to create manifest entry in zip: %w", err)
+	}
+	if _, err := manifestFile.Write(manifestBytes); err != nil {
+		return nil, "", fmt.Errorf("failed to write manifest to zip: %w", err)
+	}
+
+	if err := zipWriter.Close(); err != nil {
+		return nil, "", fmt.Errorf("failed to close zip writer: %w", err)
+	}
+
+	filename := fmt.Sprintf("export_%s_%d.zip", cameraID, time.Now().Unix())
+	return zipBuffer.Bytes(), filename, nil
 }

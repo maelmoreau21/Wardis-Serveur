@@ -13,6 +13,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"go.uber.org/zap"
 
+	"wardis-server/internal/auth"
 	"wardis-server/internal/validation"
 )
 
@@ -475,4 +476,79 @@ func (h *Handler) ConfigureWHEPStream(w http.ResponseWriter, r *http.Request) {
 		"message":  "WHEP stream configured successfully in MediaMTX",
 		"whep_url": whepURL,
 	})
+}
+
+func (h *Handler) ExportVideo(w http.ResponseWriter, r *http.Request) {
+	// Parse query parameters
+	cameraID := r.URL.Query().Get("camera_id")
+	startTimeStr := r.URL.Query().Get("start_time")
+	endTimeStr := r.URL.Query().Get("end_time")
+
+	if cameraID == "" || !validation.IsUUID(cameraID) {
+		h.respondWithError(w, http.StatusBadRequest, "invalid camera_id format")
+		return
+	}
+
+	if startTimeStr == "" || endTimeStr == "" {
+		h.respondWithError(w, http.StatusBadRequest, "missing start_time or end_time")
+		return
+	}
+
+	startTime, err := time.Parse(time.RFC3339, startTimeStr)
+	if err != nil {
+		h.respondWithError(w, http.StatusBadRequest, "invalid start_time format (must be RFC3339)")
+		return
+	}
+
+	endTime, err := time.Parse(time.RFC3339, endTimeStr)
+	if err != nil {
+		h.respondWithError(w, http.StatusBadRequest, "invalid end_time format (must be RFC3339)")
+		return
+	}
+
+	if !startTime.Before(endTime) {
+		h.respondWithError(w, http.StatusBadRequest, "start_time must be before end_time")
+		return
+	}
+
+	// Retrieve operator ID from context
+	operatorID, ok := auth.UserIDFromContext(r.Context())
+	if !ok {
+		operatorID = "unknown"
+	}
+
+	// Call video service
+	zipBytes, filename, err := h.service.ExportVideo(r.Context(), cameraID, startTime, endTime, operatorID)
+	if err != nil {
+		h.audit.Log(r.Context(), r, "export_video", "camera", cameraID, "failed", map[string]interface{}{"error": err.Error()})
+		if errors.Is(err, ErrCameraNotFound) {
+			h.respondWithError(w, http.StatusNotFound, "camera not found")
+			return
+		}
+		if errors.Is(err, ErrNoRecordingsFound) {
+			h.respondWithError(w, http.StatusNotFound, "no recordings found for the specified period")
+			return
+		}
+		h.log.Error("failed to export video", zap.String("camera_id", cameraID), zap.Error(err))
+		h.respondWithError(w, http.StatusInternalServerError, "failed to export video: "+err.Error())
+		return
+	}
+
+	// Successful export audit log
+	h.audit.Log(r.Context(), r, "export_video", "camera", cameraID, "success", map[string]interface{}{
+		"start_time":  startTimeStr,
+		"end_time":    endTimeStr,
+		"operator_id": operatorID,
+		"filename":    filename,
+		"size_bytes":  len(zipBytes),
+	})
+
+	// Stream the ZIP bytes
+	w.Header().Set("Content-Type", "application/zip")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(zipBytes)))
+	w.WriteHeader(http.StatusOK)
+	if _, err := w.Write(zipBytes); err != nil {
+		h.log.Error("failed to write export ZIP to response stream", zap.Error(err))
+	}
 }

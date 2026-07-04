@@ -187,6 +187,7 @@ func main() {
 		r.Post("/doors/{id}/swipe", acHandler.SwipeBadge)
 
 		// Video Routes
+		r.Get("/api/v1/video/export", videoHandler.ExportVideo)
 		r.Get("/cameras", videoHandler.ListCameras)
 		r.Get("/cameras/{id}", videoHandler.GetCameraByID)
 		r.Post("/cameras/{id}/token", videoHandler.GenerateStreamToken)
