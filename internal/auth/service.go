@@ -28,6 +28,7 @@ type Service interface {
 	ValidateToken(tokenStr string) (*Claims, error)
 	HashPassword(password string) (string, error)
 	GetUserByID(ctx context.Context, id string) (*User, error)
+	CheckEntityPermission(ctx context.Context, userID string, permissionName string, entityType string, entityID string) (bool, error)
 }
 
 type service struct {
@@ -123,4 +124,8 @@ func (s *service) HashPassword(password string) (string, error) {
 
 func (s *service) GetUserByID(ctx context.Context, id string) (*User, error) {
 	return s.repo.GetUserByID(ctx, id)
+}
+
+func (s *service) CheckEntityPermission(ctx context.Context, userID string, permissionName string, entityType string, entityID string) (bool, error) {
+	return s.repo.CheckEntityPermission(ctx, userID, permissionName, entityType, entityID)
 }

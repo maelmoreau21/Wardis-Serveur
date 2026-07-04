@@ -4,6 +4,8 @@ import (
 	"context"
 	"net/http"
 	"strings"
+
+	"github.com/go-chi/chi/v5"
 )
 
 type contextKey string
@@ -79,6 +81,37 @@ func RequireRole(role string) func(http.Handler) http.Handler {
 				http.Error(w, `{"error": "forbidden: insufficient permissions"}`, http.StatusForbidden)
 				return
 			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+func RequireEntityPermission(authService Service, permissionName string, entityType string, idParamName string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			userID, ok := UserIDFromContext(r.Context())
+			if !ok {
+				http.Error(w, `{"error": "unauthorized: user not authenticated"}`, http.StatusUnauthorized)
+				return
+			}
+
+			entityID := chi.URLParam(r, idParamName)
+			if entityID == "" {
+				http.Error(w, `{"error": "bad request: missing resource identifier"}`, http.StatusBadRequest)
+				return
+			}
+
+			allowed, err := authService.CheckEntityPermission(r.Context(), userID, permissionName, entityType, entityID)
+			if err != nil {
+				http.Error(w, fmtJSONError("internal authorization error: "+err.Error()), http.StatusInternalServerError)
+				return
+			}
+
+			if !allowed {
+				http.Error(w, `{"error": "forbidden: insufficient permissions for this resource"}`, http.StatusForbidden)
+				return
+			}
+
 			next.ServeHTTP(w, r)
 		})
 	}

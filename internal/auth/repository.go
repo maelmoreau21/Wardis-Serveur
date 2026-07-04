@@ -19,6 +19,7 @@ type Repository interface {
 	GetUserByEmail(ctx context.Context, email string) (*User, error)
 	GetUserByID(ctx context.Context, id string) (*User, error)
 	CreateUser(ctx context.Context, email, passwordHash, roleName string) (*User, error)
+	CheckEntityPermission(ctx context.Context, userID string, permissionName string, entityType string, entityID string) (bool, error)
 }
 
 type postgresRepository struct {
@@ -195,4 +196,59 @@ func (r *postgresRepository) getPermissionsForRole(ctx context.Context, roleID i
 	}
 
 	return permissions, nil
+}
+
+func (r *postgresRepository) CheckEntityPermission(ctx context.Context, userID string, permissionName string, entityType string, entityID string) (bool, error) {
+	query := `
+		WITH user_roles_list AS (
+			SELECT role_id FROM user_roles WHERE user_id = $1
+			UNION
+			SELECT role_id FROM users WHERE id = $1 AND role_id IS NOT NULL
+		),
+		perm_id AS (
+			SELECT id FROM permissions WHERE name = $2
+		),
+		user_override AS (
+			SELECT allowed
+			FROM entity_permissions ep
+			JOIN perm_id p ON ep.permission_id = p.id
+			WHERE ep.user_id = $1
+			  AND ep.entity_type = $3
+			  AND ep.entity_id = $4
+		),
+		role_overrides AS (
+			SELECT allowed
+			FROM entity_permissions ep
+			JOIN perm_id p ON ep.permission_id = p.id
+			WHERE ep.role_id IN (SELECT role_id FROM user_roles_list)
+			  AND ep.entity_type = $3
+			  AND ep.entity_id = $4
+		),
+		global_permission AS (
+			SELECT EXISTS (
+				SELECT 1
+				FROM role_permissions rp
+				JOIN perm_id p ON rp.permission_id = p.id
+				WHERE rp.role_id IN (SELECT role_id FROM user_roles_list)
+			) AS allowed
+		)
+		SELECT COALESCE(
+			(SELECT allowed FROM user_override LIMIT 1),
+			(
+				SELECT CASE 
+					WHEN bool_and(allowed) = false THEN false
+					ELSE bool_or(allowed)
+				END
+				FROM role_overrides
+			),
+			(SELECT allowed FROM global_permission)
+		) AS has_permission;`
+
+	var hasPermission bool
+	err := r.db.QueryRow(ctx, query, userID, permissionName, entityType, entityID).Scan(&hasPermission)
+	if err != nil {
+		return false, fmt.Errorf("failed to check entity permission: %w", err)
+	}
+
+	return hasPermission, nil
 }

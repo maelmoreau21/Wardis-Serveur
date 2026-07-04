@@ -49,6 +49,16 @@ func (m *mockRepository) CreateUser(ctx context.Context, email, passwordHash, ro
 	return u, nil
 }
 
+func (m *mockRepository) CheckEntityPermission(ctx context.Context, userID string, permissionName string, entityType string, entityID string) (bool, error) {
+	if userID == "forbidden-user" {
+		return false, nil
+	}
+	if permissionName == "error-permission" {
+		return false, errors.New("mock db error")
+	}
+	return true, nil
+}
+
 func TestAuthService(t *testing.T) {
 	ctx := context.Background()
 	secret := "test-secret-key-12345"
