@@ -110,7 +110,7 @@ func main() {
 	// 5c. Initialize Video Components
 	videoRepo := video.NewRepository(dbPool)
 	videoMtxClient := video.NewMediaMtxClient(cfg.MediaMtxAPIURL)
-	videoService := video.NewService(videoRepo, videoMtxClient, videoNatsPub, cfg.JWTSecret, log)
+	videoService := video.NewService(videoRepo, videoMtxClient, videoNatsPub, cfg.JWTSecret, log, cfg)
 	videoHandler := video.NewHandler(videoService, log, auditLogger)
 
 	// 5d. Initialize Intrusion Components
@@ -128,6 +128,12 @@ func main() {
 		log.Error("Failed to start NATS event subscriber", zap.Error(err))
 	}
 	defer eventsService.Close()
+
+	// Start Video Service Background Jobs (Tiering + NATS subscriber)
+	if err := videoService.Start(ctx); err != nil {
+		log.Error("Failed to start Video Service background tasks", zap.Error(err))
+	}
+	defer videoService.Close()
 
 	// 6. Seed default Admin User if it doesn't exist
 	seedDefaultAdmin(ctx, authService, authRepo, log)
@@ -185,6 +191,7 @@ func main() {
 		r.Get("/cameras/{id}", videoHandler.GetCameraByID)
 		r.Post("/cameras/{id}/token", videoHandler.GenerateStreamToken)
 		r.Get("/cameras/active-streams", videoHandler.ListActiveStreams)
+		r.Post("/cameras/{id}/sync", videoHandler.SyncRecording)
 
 		// Intrusion Routes
 		r.Get("/zones", intrusionHandler.ListZones)

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -20,6 +21,13 @@ type Repository interface {
 	Create(ctx context.Context, c *Camera) (*Camera, error)
 	Update(ctx context.Context, c *Camera) (*Camera, error)
 	Delete(ctx context.Context, id string) error
+
+	// Recording management methods
+	SaveRecording(ctx context.Context, rec *VideoRecording) error
+	GetOverlappingRecordings(ctx context.Context, cameraID string, start, end time.Time) ([]VideoRecording, error)
+	DeleteRecording(ctx context.Context, id string) error
+	GetLocalRecordingsOlderThan(ctx context.Context, threshold time.Time) ([]VideoRecording, error)
+	UpdateRecordingStorageType(ctx context.Context, id string, storageType string, filepath string) error
 }
 
 type postgresRepository struct {
@@ -211,6 +219,101 @@ func (r *postgresRepository) Delete(ctx context.Context, id string) error {
 	}
 	if tag.RowsAffected() == 0 {
 		return ErrCameraNotFound
+	}
+	return nil
+}
+
+func (r *postgresRepository) SaveRecording(ctx context.Context, rec *VideoRecording) error {
+	query := `
+		INSERT INTO video_recordings (camera_id, start_time, end_time, filepath, storage_type, file_size)
+		VALUES ($1, $2, $3, $4, $5, $6)
+		RETURNING id, created_at`
+	err := r.db.QueryRow(ctx, query, rec.CameraID, rec.StartTime, rec.EndTime, rec.Filepath, rec.StorageType, rec.FileSize).
+		Scan(&rec.ID, &rec.CreatedAt)
+	if err != nil {
+		return fmt.Errorf("failed to save video recording: %w", err)
+	}
+	return nil
+}
+
+func (r *postgresRepository) GetOverlappingRecordings(ctx context.Context, cameraID string, start, end time.Time) ([]VideoRecording, error) {
+	query := `
+		SELECT id, camera_id, start_time, end_time, filepath, storage_type, file_size, created_at
+		FROM video_recordings
+		WHERE camera_id = $1 AND start_time < $3 AND end_time > $2
+		ORDER BY start_time ASC`
+	rows, err := r.db.Query(ctx, query, cameraID, start, end)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query overlapping recordings: %w", err)
+	}
+	defer rows.Close()
+
+	var list []VideoRecording
+	for rows.Next() {
+		var rec VideoRecording
+		err := rows.Scan(&rec.ID, &rec.CameraID, &rec.StartTime, &rec.EndTime, &rec.Filepath, &rec.StorageType, &rec.FileSize, &rec.CreatedAt)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan video recording row: %w", err)
+		}
+		list = append(list, rec)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error during video recordings iteration: %w", err)
+	}
+
+	return list, nil
+}
+
+func (r *postgresRepository) DeleteRecording(ctx context.Context, id string) error {
+	query := `DELETE FROM video_recordings WHERE id = $1`
+	_, err := r.db.Exec(ctx, query, id)
+	if err != nil {
+		return fmt.Errorf("failed to delete video recording: %w", err)
+	}
+	return nil
+}
+
+func (r *postgresRepository) GetLocalRecordingsOlderThan(ctx context.Context, threshold time.Time) ([]VideoRecording, error) {
+	query := `
+		SELECT id, camera_id, start_time, end_time, filepath, storage_type, file_size, created_at
+		FROM video_recordings
+		WHERE storage_type = 'local' AND start_time < $1
+		ORDER BY start_time ASC`
+	rows, err := r.db.Query(ctx, query, threshold)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query old local recordings: %w", err)
+	}
+	defer rows.Close()
+
+	var list []VideoRecording
+	for rows.Next() {
+		var rec VideoRecording
+		err := rows.Scan(&rec.ID, &rec.CameraID, &rec.StartTime, &rec.EndTime, &rec.Filepath, &rec.StorageType, &rec.FileSize, &rec.CreatedAt)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan video recording row: %w", err)
+		}
+		list = append(list, rec)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error during old local recordings iteration: %w", err)
+	}
+
+	return list, nil
+}
+
+func (r *postgresRepository) UpdateRecordingStorageType(ctx context.Context, id string, storageType string, filepath string) error {
+	query := `
+		UPDATE video_recordings
+		SET storage_type = $2, filepath = $3
+		WHERE id = $1`
+	tag, err := r.db.Exec(ctx, query, id, storageType, filepath)
+	if err != nil {
+		return fmt.Errorf("failed to update video recording storage type: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("recording not found: %s", id)
 	}
 	return nil
 }

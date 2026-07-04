@@ -6,7 +6,12 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/minio/minio-go/v7"
+	"github.com/minio/minio-go/v7/pkg/credentials"
+	"github.com/nats-io/nats.go"
 	"go.uber.org/zap"
+
+	"wardis-server/internal/config"
 )
 
 type Service interface {
@@ -20,23 +25,50 @@ type Service interface {
 	ListActiveStreams(ctx context.Context) ([]ActiveStream, error)
 	SyncWithMediaMTX(ctx context.Context) error
 	DiscoverCameras(ctx context.Context, username, password string, timeout time.Duration) ([]DiscoveredCamera, error)
+
+	// Lifecycle & synchronization methods
+	Start(ctx context.Context) error
+	Close()
+	SyncRecording(ctx context.Context, cameraID string, startTime, endTime time.Time, fileData []byte, filename string) (*VideoRecording, error)
 }
 
 type service struct {
-	repo       Repository
-	mtxClient  MediaMtxClient
-	publisher  EventPublisher
-	jwtSecret  []byte
-	log        *zap.Logger
+	repo        Repository
+	mtxClient   MediaMtxClient
+	publisher   EventPublisher
+	jwtSecret   []byte
+	log         *zap.Logger
+	cfg         *config.Config
+	minioClient *minio.Client
+	natsConn    *nats.Conn
+	natsSubs    []*nats.Subscription
+	stopChan    chan struct{}
 }
 
-func NewService(repo Repository, mtxClient MediaMtxClient, publisher EventPublisher, jwtSecret string, log *zap.Logger) Service {
+func NewService(repo Repository, mtxClient MediaMtxClient, publisher EventPublisher, jwtSecret string, log *zap.Logger, cfg *config.Config) Service {
+	var minioClient *minio.Client
+	var err error
+	if cfg != nil && cfg.MinioEndpoint != "" {
+		minioClient, err = minio.New(cfg.MinioEndpoint, &minio.Options{
+			Creds:  credentials.NewStaticV4(cfg.MinioAccessKey, cfg.MinioSecretKey, ""),
+			Secure: cfg.MinioUseSSL,
+		})
+		if err != nil {
+			log.Error("Failed to initialize MinIO client in video service", zap.Error(err))
+		} else {
+			log.Info("Successfully initialized MinIO client in video service", zap.String("endpoint", cfg.MinioEndpoint))
+		}
+	}
+
 	return &service{
-		repo:       repo,
-		mtxClient:  mtxClient,
-		publisher:  publisher,
-		jwtSecret:  []byte(jwtSecret),
-		log:        log,
+		repo:        repo,
+		mtxClient:   mtxClient,
+		publisher:   publisher,
+		jwtSecret:   []byte(jwtSecret),
+		log:         log,
+		cfg:         cfg,
+		minioClient: minioClient,
+		stopChan:    make(chan struct{}),
 	}
 }
 

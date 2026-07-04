@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/url"
 	"time"
@@ -331,4 +332,83 @@ func (h *Handler) respondWithJSON(w http.ResponseWriter, code int, payload inter
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
 	w.Write(response)
+}
+
+func (h *Handler) SyncRecording(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if id == "" || !validation.IsUUID(id) {
+		h.respondWithError(w, http.StatusBadRequest, "invalid camera ID format")
+		return
+	}
+
+	// Parse Multipart Form (max size 50MB)
+	err := r.ParseMultipartForm(50 << 20)
+	if err != nil {
+		h.log.Error("failed to parse multipart form", zap.Error(err))
+		h.respondWithError(w, http.StatusBadRequest, "failed to parse multipart form")
+		return
+	}
+
+	startTimeStr := r.FormValue("start_time")
+	endTimeStr := r.FormValue("end_time")
+
+	if startTimeStr == "" || endTimeStr == "" {
+		h.respondWithError(w, http.StatusBadRequest, "missing start_time or end_time")
+		return
+	}
+
+	startTime, err := time.Parse(time.RFC3339, startTimeStr)
+	if err != nil {
+		h.respondWithError(w, http.StatusBadRequest, "invalid start_time format (must be RFC3339)")
+		return
+	}
+
+	endTime, err := time.Parse(time.RFC3339, endTimeStr)
+	if err != nil {
+		h.respondWithError(w, http.StatusBadRequest, "invalid end_time format (must be RFC3339)")
+		return
+	}
+
+	if !startTime.Before(endTime) {
+		h.respondWithError(w, http.StatusBadRequest, "start_time must be before end_time")
+		return
+	}
+
+	file, fileHeader, err := r.FormFile("video")
+	if err != nil {
+		h.respondWithError(w, http.StatusBadRequest, "missing video file in form field 'video'")
+		return
+	}
+	defer file.Close()
+
+	fileData, err := io.ReadAll(file)
+	if err != nil {
+		h.log.Error("failed to read uploaded file", zap.Error(err))
+		h.respondWithError(w, http.StatusInternalServerError, "failed to read uploaded file")
+		return
+	}
+
+	filename := fileHeader.Filename
+
+	rec, err := h.service.SyncRecording(r.Context(), id, startTime, endTime, fileData, filename)
+	if err != nil {
+		h.audit.Log(r.Context(), r, "sync_recording", "camera", id, "failed", map[string]interface{}{"error": err.Error()})
+		h.log.Error("failed to sync video recording", zap.String("camera_id", id), zap.Error(err))
+		h.respondWithError(w, http.StatusInternalServerError, "failed to sync recording: "+err.Error())
+		return
+	}
+
+	h.audit.Log(r.Context(), r, "sync_recording", "camera", id, "success", map[string]interface{}{
+		"start_time": startTimeStr,
+		"end_time":   endTimeStr,
+		"reconciled": rec != nil,
+	})
+
+	if rec != nil {
+		h.respondWithJSON(w, http.StatusCreated, rec)
+	} else {
+		h.respondWithJSON(w, http.StatusOK, map[string]string{
+			"message": "recording received but fully redundant/skipped",
+		})
+	}
 }

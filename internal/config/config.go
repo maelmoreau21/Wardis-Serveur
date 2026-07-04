@@ -18,6 +18,16 @@ type Config struct {
 	MediaMtxAPIURL      string        `mapstructure:"MEDIAMTX_API_URL"`
 	LoginRateLimitRate  float64       `mapstructure:"LOGIN_RATE_LIMIT_RATE"`
 	LoginRateLimitBurst float64       `mapstructure:"LOGIN_RATE_LIMIT_BURST"`
+
+	// MinIO & Video Tiering configuration
+	MinioEndpoint        string        `mapstructure:"MINIO_ENDPOINT"`
+	MinioAccessKey       string        `mapstructure:"MINIO_ACCESS_KEY"`
+	MinioSecretKey       string        `mapstructure:"MINIO_SECRET_KEY"`
+	MinioUseSSL          bool          `mapstructure:"MINIO_USE_SSL"`
+	MinioBucket          string        `mapstructure:"MINIO_BUCKET"`
+	VideoTieringInterval time.Duration `mapstructure:"VIDEO_TIERING_INTERVAL"`
+	VideoTieringAgeDays  int           `mapstructure:"VIDEO_TIERING_AGE_DAYS"`
+	RecordingsLocalDir   string        `mapstructure:"RECORDINGS_LOCAL_DIR"`
 }
 
 func Load() (*Config, error) {
@@ -31,6 +41,15 @@ func Load() (*Config, error) {
 	viper.SetDefault("MEDIAMTX_API_URL", "http://localhost:9997")
 	viper.SetDefault("LOGIN_RATE_LIMIT_RATE", 0.1)
 	viper.SetDefault("LOGIN_RATE_LIMIT_BURST", 5.0)
+
+	viper.SetDefault("MINIO_ENDPOINT", "localhost:9000")
+	viper.SetDefault("MINIO_ACCESS_KEY", "minioadmin")
+	viper.SetDefault("MINIO_SECRET_KEY", "minioadminpassword")
+	viper.SetDefault("MINIO_USE_SSL", false)
+	viper.SetDefault("MINIO_BUCKET", "wardis-video-recordings")
+	viper.SetDefault("VIDEO_TIERING_INTERVAL", 1*time.Hour)
+	viper.SetDefault("VIDEO_TIERING_AGE_DAYS", 7)
+	viper.SetDefault("RECORDINGS_LOCAL_DIR", "./data/recordings")
 
 	// Read environment variables
 	viper.AutomaticEnv()

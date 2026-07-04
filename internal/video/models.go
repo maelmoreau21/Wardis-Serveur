@@ -106,3 +106,22 @@ type ActiveStream struct {
 	Readers   int       `json:"readers_count"`
 	Statut    string    `json:"statut"`
 }
+
+type VideoRecording struct {
+	ID          string    `json:"id"`
+	CameraID    string    `json:"camera_id"`
+	StartTime   time.Time `json:"start_time"`
+	EndTime     time.Time `json:"end_time"`
+	Filepath    string    `json:"filepath"`
+	StorageType string    `json:"storage_type"` // "local" or "cloud"
+	FileSize    int64     `json:"file_size"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
+type SyncRecordingPayload struct {
+	CameraID     string    `json:"camera_id"`
+	StartTime    time.Time `json:"start_time"`
+	EndTime      time.Time `json:"end_time"`
+	VideoDataB64 string    `json:"video_data_b64"`
+}
+

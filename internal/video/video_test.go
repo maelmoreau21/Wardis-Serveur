@@ -54,6 +54,28 @@ func (m *mockRepository) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
+func (m *mockRepository) SaveRecording(ctx context.Context, rec *video.VideoRecording) error {
+	rec.ID = "rec-uuid-" + rec.CameraID
+	rec.CreatedAt = time.Now()
+	return nil
+}
+
+func (m *mockRepository) GetOverlappingRecordings(ctx context.Context, cameraID string, start, end time.Time) ([]video.VideoRecording, error) {
+	return nil, nil
+}
+
+func (m *mockRepository) DeleteRecording(ctx context.Context, id string) error {
+	return nil
+}
+
+func (m *mockRepository) GetLocalRecordingsOlderThan(ctx context.Context, threshold time.Time) ([]video.VideoRecording, error) {
+	return nil, nil
+}
+
+func (m *mockRepository) UpdateRecordingStorageType(ctx context.Context, id string, storageType string, filepath string) error {
+	return nil
+}
+
 type mockMediaMtxClient struct {
 	paths       map[string]string // key: path name, value: RTSP URL
 	deleteCalls []string
@@ -97,7 +119,7 @@ func TestVideoService(t *testing.T) {
 	t.Run("Create Camera Active", func(t *testing.T) {
 		repo := &mockRepository{cameras: make(map[string]video.Camera)}
 		mtx := &mockMediaMtxClient{paths: make(map[string]string)}
-		svc := video.NewService(repo, mtx, pub, jwtSecret, logger)
+		svc := video.NewService(repo, mtx, pub, jwtSecret, logger, nil)
 
 		req := video.CreateCameraRequest{
 			Nom:     "Front Gate",
@@ -123,7 +145,7 @@ func TestVideoService(t *testing.T) {
 	t.Run("Create Camera Inactive", func(t *testing.T) {
 		repo := &mockRepository{cameras: make(map[string]video.Camera)}
 		mtx := &mockMediaMtxClient{paths: make(map[string]string)}
-		svc := video.NewService(repo, mtx, pub, jwtSecret, logger)
+		svc := video.NewService(repo, mtx, pub, jwtSecret, logger, nil)
 
 		req := video.CreateCameraRequest{
 			Nom:     "Back Office",
@@ -145,7 +167,7 @@ func TestVideoService(t *testing.T) {
 	t.Run("Update Camera URL and Statut", func(t *testing.T) {
 		repo := &mockRepository{cameras: make(map[string]video.Camera)}
 		mtx := &mockMediaMtxClient{paths: make(map[string]string)}
-		svc := video.NewService(repo, mtx, pub, jwtSecret, logger)
+		svc := video.NewService(repo, mtx, pub, jwtSecret, logger, nil)
 
 		// Create camera first
 		cam, _ := svc.CreateCamera(ctx, video.CreateCameraRequest{
@@ -186,7 +208,7 @@ func TestVideoService(t *testing.T) {
 	t.Run("Delete Camera", func(t *testing.T) {
 		repo := &mockRepository{cameras: make(map[string]video.Camera)}
 		mtx := &mockMediaMtxClient{paths: make(map[string]string)}
-		svc := video.NewService(repo, mtx, pub, jwtSecret, logger)
+		svc := video.NewService(repo, mtx, pub, jwtSecret, logger, nil)
 
 		cam, _ := svc.CreateCamera(ctx, video.CreateCameraRequest{
 			Nom:     "DeleteMe",
@@ -211,7 +233,7 @@ func TestVideoService(t *testing.T) {
 	t.Run("Generate and Validate Stream Tokens", func(t *testing.T) {
 		repo := &mockRepository{cameras: make(map[string]video.Camera)}
 		mtx := &mockMediaMtxClient{paths: make(map[string]string)}
-		svc := video.NewService(repo, mtx, pub, jwtSecret, logger)
+		svc := video.NewService(repo, mtx, pub, jwtSecret, logger, nil)
 
 		cam, _ := svc.CreateCamera(ctx, video.CreateCameraRequest{
 			Nom:     "SecureCam",
@@ -240,7 +262,7 @@ func TestVideoService(t *testing.T) {
 	t.Run("List Active Streams matching DB", func(t *testing.T) {
 		repo := &mockRepository{cameras: make(map[string]video.Camera)}
 		mtx := &mockMediaMtxClient{paths: make(map[string]string)}
-		svc := video.NewService(repo, mtx, pub, jwtSecret, logger)
+		svc := video.NewService(repo, mtx, pub, jwtSecret, logger, nil)
 
 		cam1, _ := svc.CreateCamera(ctx, video.CreateCameraRequest{Nom: "Cam1", URLRTSP: "rtsp://cam1", Statut: "active"})
 		cam2, _ := svc.CreateCamera(ctx, video.CreateCameraRequest{Nom: "Cam2", URLRTSP: "rtsp://cam2", Statut: "active"})
