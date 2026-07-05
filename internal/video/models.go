@@ -21,6 +21,8 @@ type Camera struct {
 	PasswordEncrypted *string   `json:"password_encrypted,omitempty"`
 	PTZSupported      bool      `json:"ptz_supported"`
 	ProfileToken      *string   `json:"profile_token,omitempty"`
+	RecordingMode     string    `json:"recording_mode"` // "continuous", "motion", "both", "none"
+	RetentionDays     int       `json:"retention_days"`
 }
 
 type CreateCameraRequest struct {
@@ -36,6 +38,8 @@ type CreateCameraRequest struct {
 	Password      *string `json:"password,omitempty"`
 	PTZSupported  bool    `json:"ptz_supported"`
 	ProfileToken  *string `json:"profile_token,omitempty"`
+	RecordingMode string  `json:"recording_mode"`
+	RetentionDays int     `json:"retention_days"`
 }
 
 type UpdateCameraRequest struct {
@@ -51,6 +55,8 @@ type UpdateCameraRequest struct {
 	Password      *string `json:"password,omitempty"`
 	PTZSupported  bool    `json:"ptz_supported"`
 	ProfileToken  *string `json:"profile_token,omitempty"`
+	RecordingMode string  `json:"recording_mode"`
+	RetentionDays int     `json:"retention_days"`
 }
 
 type DiscoverCamerasRequest struct {
@@ -135,3 +141,29 @@ type SyncRecordingPayload struct {
 	VideoDataB64 string    `json:"video_data_b64"`
 }
 
+type Bookmark struct {
+	ID        string    `json:"id"`
+	CameraID  string    `json:"camera_id"`
+	Name      string    `json:"name"`
+	Notes     string    `json:"notes"`
+	Timestamp time.Time `json:"timestamp"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type CreateBookmarkRequest struct {
+	Name      string    `json:"name"`
+	Notes     string    `json:"notes"`
+	Timestamp time.Time `json:"timestamp"`
+}
+
+type UpdateBookmarkRequest struct {
+	Name  string `json:"name"`
+	Notes string `json:"notes"`
+}
+
+type VideoEventPayload struct {
+	CameraID  string    `json:"camera_id"`
+	EventType string    `json:"event_type"` // e.g. "video.motion"
+	Timestamp time.Time `json:"timestamp"`
+	Details   *string   `json:"details,omitempty"`
+}

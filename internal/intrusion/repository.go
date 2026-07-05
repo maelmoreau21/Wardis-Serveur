@@ -19,12 +19,19 @@ var (
 type Repository interface {
 	ListZones(ctx context.Context) ([]Zone, error)
 	GetZoneByID(ctx context.Context, id string) (*Zone, error)
+	CreateZone(ctx context.Context, z *Zone) (*Zone, error)
+	UpdateZone(ctx context.Context, id string, z *Zone) (*Zone, error)
+	DeleteZone(ctx context.Context, id string) error
 	UpdateZoneStatus(ctx context.Context, id string, statut string) error
 	ListSensors(ctx context.Context) ([]Capteur, error)
 	GetSensorByID(ctx context.Context, id string) (*Capteur, error)
+	CreateSensor(ctx context.Context, c *Capteur) (*Capteur, error)
+	UpdateSensor(ctx context.Context, id string, c *Capteur) (*Capteur, error)
+	DeleteSensor(ctx context.Context, id string) error
 	UpdateSensorStatus(ctx context.Context, id string, statut string) error
 	CreateAlarm(ctx context.Context, alarm *Alarme) (*Alarme, error)
 	ListActiveAlarms(ctx context.Context) ([]Alarme, error)
+	ListAllAlarms(ctx context.Context) ([]Alarme, error)
 	CreateHistoryLog(ctx context.Context, log *HistoriqueAlarme) (*HistoriqueAlarme, error)
 	GetAlarmByID(ctx context.Context, id string) (*Alarme, error)
 	UpdateAlarmStatus(ctx context.Context, id string, statut string, userID *string) error
@@ -286,5 +293,132 @@ func (r *postgresRepository) UpdateAlarmStatus(ctx context.Context, id string, s
 		return fmt.Errorf("failed to update alarm status: %w", err)
 	}
 	return nil
+}
+
+func (r *postgresRepository) CreateZone(ctx context.Context, z *Zone) (*Zone, error) {
+	query := `
+		INSERT INTO zones (nom, description, statut)
+		VALUES ($1, $2, $3)
+		RETURNING id, created_at`
+	var desc sql.NullString
+	if z.Description != nil {
+		desc.String = *z.Description
+		desc.Valid = true
+	}
+	if z.Statut == "" {
+		z.Statut = "desarme"
+	}
+	err := r.db.QueryRow(ctx, query, z.Nom, desc, z.Statut).Scan(&z.ID, &z.CreatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create zone: %w", err)
+	}
+	return z, nil
+}
+
+func (r *postgresRepository) UpdateZone(ctx context.Context, id string, z *Zone) (*Zone, error) {
+	query := `
+		UPDATE zones
+		SET nom = $1, description = $2, statut = $3
+		WHERE id = $4`
+	var desc sql.NullString
+	if z.Description != nil {
+		desc.String = *z.Description
+		desc.Valid = true
+	}
+	tag, err := r.db.Exec(ctx, query, z.Nom, desc, z.Statut, id)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update zone: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return nil, ErrZoneNotFound
+	}
+	z.ID = id
+	return z, nil
+}
+
+func (r *postgresRepository) DeleteZone(ctx context.Context, id string) error {
+	query := `DELETE FROM zones WHERE id = $1`
+	tag, err := r.db.Exec(ctx, query, id)
+	if err != nil {
+		return fmt.Errorf("failed to delete zone: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrZoneNotFound
+	}
+	return nil
+}
+
+func (r *postgresRepository) CreateSensor(ctx context.Context, c *Capteur) (*Capteur, error) {
+	query := `
+		INSERT INTO capteurs (zone_id, nom, type, statut)
+		VALUES ($1, $2, $3, $4)
+		RETURNING id, created_at`
+	if c.Statut == "" {
+		c.Statut = "ok"
+	}
+	err := r.db.QueryRow(ctx, query, c.ZoneID, c.Nom, c.Type, c.Statut).Scan(&c.ID, &c.CreatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create sensor: %w", err)
+	}
+	return c, nil
+}
+
+func (r *postgresRepository) UpdateSensor(ctx context.Context, id string, c *Capteur) (*Capteur, error) {
+	query := `
+		UPDATE capteurs
+		SET zone_id = $1, nom = $2, type = $3, statut = $4
+		WHERE id = $5`
+	tag, err := r.db.Exec(ctx, query, c.ZoneID, c.Nom, c.Type, c.Statut, id)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update sensor: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return nil, ErrSensorNotFound
+	}
+	c.ID = id
+	return c, nil
+}
+
+func (r *postgresRepository) DeleteSensor(ctx context.Context, id string) error {
+	query := `DELETE FROM capteurs WHERE id = $1`
+	tag, err := r.db.Exec(ctx, query, id)
+	if err != nil {
+		return fmt.Errorf("failed to delete sensor: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrSensorNotFound
+	}
+	return nil
+}
+
+func (r *postgresRepository) ListAllAlarms(ctx context.Context) ([]Alarme, error) {
+	query := `
+		SELECT id, zone_id, capteur_id, statut, declenchee_a, acquittee_a, acquittee_par
+		FROM alarmes
+		ORDER BY declenchee_a DESC`
+	rows, err := r.db.Query(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query all alarms: %w", err)
+	}
+	defer rows.Close()
+
+	var list []Alarme
+	for rows.Next() {
+		var al Alarme
+		var acqA sql.NullTime
+		var acqPar sql.NullString
+		err := rows.Scan(&al.ID, &al.ZoneID, &al.CapteurID, &al.Statut, &al.DeclencheeA, &acqA, &acqPar)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan alarm row: %w", err)
+		}
+		if acqA.Valid {
+			al.AcquitteeA = &acqA.Time
+		}
+		if acqPar.Valid {
+			al.AcquitteePar = &acqPar.String
+		}
+		list = append(list, al)
+	}
+	return list, nil
 }
 

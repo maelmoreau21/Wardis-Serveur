@@ -10,11 +10,20 @@ import (
 
 type Service interface {
 	ListZones(ctx context.Context) ([]Zone, error)
+	GetZoneByID(ctx context.Context, id string) (*Zone, error)
+	CreateZone(ctx context.Context, z *Zone) (*Zone, error)
+	UpdateZone(ctx context.Context, id string, z *Zone) (*Zone, error)
+	DeleteZone(ctx context.Context, id string) error
 	ArmZone(ctx context.Context, zoneID string) error
 	DisarmZone(ctx context.Context, zoneID string) error
 	ListSensors(ctx context.Context) ([]Capteur, error)
+	GetSensorByID(ctx context.Context, id string) (*Capteur, error)
+	CreateSensor(ctx context.Context, c *Capteur) (*Capteur, error)
+	UpdateSensor(ctx context.Context, id string, c *Capteur) (*Capteur, error)
+	DeleteSensor(ctx context.Context, id string) error
 	TriggerSensor(ctx context.Context, sensorID string) (*Alarme, error)
 	ListActiveAlarms(ctx context.Context) ([]Alarme, error)
+	ListAllAlarms(ctx context.Context) ([]Alarme, error)
 	AcknowledgeAlarm(ctx context.Context, id string, userID string, username string, reason string) error
 	TransferAlarm(ctx context.Context, id string, userID string, username string, recipient string, reason string) error
 	SnoozeAlarm(ctx context.Context, id string, userID string, username string, durationMinutes int, reason string) error
@@ -307,5 +316,41 @@ func (s *service) SnoozeAlarm(ctx context.Context, id string, userID string, use
 		s.log.Error("failed to publish NATS alarm.snoozed event", zap.Error(err))
 	}
 	return nil
+}
+
+func (s *service) GetZoneByID(ctx context.Context, id string) (*Zone, error) {
+	return s.repo.GetZoneByID(ctx, id)
+}
+
+func (s *service) CreateZone(ctx context.Context, z *Zone) (*Zone, error) {
+	return s.repo.CreateZone(ctx, z)
+}
+
+func (s *service) UpdateZone(ctx context.Context, id string, z *Zone) (*Zone, error) {
+	return s.repo.UpdateZone(ctx, id, z)
+}
+
+func (s *service) DeleteZone(ctx context.Context, id string) error {
+	return s.repo.DeleteZone(ctx, id)
+}
+
+func (s *service) GetSensorByID(ctx context.Context, id string) (*Capteur, error) {
+	return s.repo.GetSensorByID(ctx, id)
+}
+
+func (s *service) CreateSensor(ctx context.Context, c *Capteur) (*Capteur, error) {
+	return s.repo.CreateSensor(ctx, c)
+}
+
+func (s *service) UpdateSensor(ctx context.Context, id string, c *Capteur) (*Capteur, error) {
+	return s.repo.UpdateSensor(ctx, id, c)
+}
+
+func (s *service) DeleteSensor(ctx context.Context, id string) error {
+	return s.repo.DeleteSensor(ctx, id)
+}
+
+func (s *service) ListAllAlarms(ctx context.Context) ([]Alarme, error) {
+	return s.repo.ListAllAlarms(ctx)
 }
 

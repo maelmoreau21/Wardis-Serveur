@@ -589,3 +589,187 @@ func (h *Handler) SendPTZCommand(w http.ResponseWriter, r *http.Request) {
 		"message": "PTZ command executed successfully",
 	})
 }
+
+func (h *Handler) GetRecordingsForTimeline(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if id == "" || !validation.IsUUID(id) {
+		h.respondWithError(w, http.StatusBadRequest, "invalid camera ID format")
+		return
+	}
+
+	startStr := r.URL.Query().Get("start_time")
+	endStr := r.URL.Query().Get("end_time")
+
+	if startStr == "" || endStr == "" {
+		h.respondWithError(w, http.StatusBadRequest, "missing start_time or end_time query parameter")
+		return
+	}
+
+	start, err := time.Parse(time.RFC3339, startStr)
+	if err != nil {
+		h.respondWithError(w, http.StatusBadRequest, "invalid start_time format (RFC3339 required)")
+		return
+	}
+
+	end, err := time.Parse(time.RFC3339, endStr)
+	if err != nil {
+		h.respondWithError(w, http.StatusBadRequest, "invalid end_time format (RFC3339 required)")
+		return
+	}
+
+	recordings, err := h.service.GetRecordingsForTimeline(r.Context(), id, start, end)
+	if err != nil {
+		h.log.Error("failed to get recordings for timeline", zap.String("camera_id", id), zap.Error(err))
+		h.respondWithError(w, http.StatusInternalServerError, "internal server error")
+		return
+	}
+
+	h.respondWithJSON(w, http.StatusOK, recordings)
+}
+
+func (h *Handler) TriggerMotion(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if id == "" || !validation.IsUUID(id) {
+		h.respondWithError(w, http.StatusBadRequest, "invalid camera ID format")
+		return
+	}
+
+	err := h.service.TriggerMotion(r.Context(), id)
+	if err != nil {
+		h.audit.Log(r.Context(), r, "trigger_motion", "camera", id, "failed", map[string]interface{}{"error": err.Error()})
+		h.respondWithError(w, http.StatusInternalServerError, "failed to trigger motion: "+err.Error())
+		return
+	}
+
+	h.audit.Log(r.Context(), r, "trigger_motion", "camera", id, "success", nil)
+	h.respondWithJSON(w, http.StatusOK, map[string]string{
+		"message": "Motion triggered and event published successfully",
+	})
+}
+
+func (h *Handler) ToggleCameraStatus(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if id == "" || !validation.IsUUID(id) {
+		h.respondWithError(w, http.StatusBadRequest, "invalid camera ID format")
+		return
+	}
+
+	cam, err := h.service.ToggleCameraStatus(r.Context(), id)
+	if err != nil {
+		h.audit.Log(r.Context(), r, "toggle_camera_status", "camera", id, "failed", map[string]interface{}{"error": err.Error()})
+		h.respondWithError(w, http.StatusInternalServerError, "failed to toggle status: "+err.Error())
+		return
+	}
+
+	h.audit.Log(r.Context(), r, "toggle_camera_status", "camera", id, "success", map[string]interface{}{"new_status": cam.Statut})
+	h.respondWithJSON(w, http.StatusOK, cam)
+}
+
+func (h *Handler) CreateBookmark(w http.ResponseWriter, r *http.Request) {
+	cameraID := chi.URLParam(r, "id")
+	if cameraID == "" || !validation.IsUUID(cameraID) {
+		h.respondWithError(w, http.StatusBadRequest, "invalid camera ID format")
+		return
+	}
+
+	var req CreateBookmarkRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.respondWithError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.Name == "" {
+		h.respondWithError(w, http.StatusBadRequest, "bookmark name is required")
+		return
+	}
+
+	b, err := h.service.CreateBookmark(r.Context(), cameraID, req)
+	if err != nil {
+		h.audit.Log(r.Context(), r, "create_bookmark", "camera", cameraID, "failed", map[string]interface{}{"name": req.Name, "error": err.Error()})
+		h.respondWithError(w, http.StatusInternalServerError, "failed to create bookmark: "+err.Error())
+		return
+	}
+
+	h.audit.Log(r.Context(), r, "create_bookmark", "camera", cameraID, "success", map[string]interface{}{"bookmark_id": b.ID, "name": b.Name})
+	h.respondWithJSON(w, http.StatusCreated, b)
+}
+
+func (h *Handler) UpdateBookmark(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if id == "" || !validation.IsUUID(id) {
+		h.respondWithError(w, http.StatusBadRequest, "invalid bookmark ID format")
+		return
+	}
+
+	var req UpdateBookmarkRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.respondWithError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.Name == "" {
+		h.respondWithError(w, http.StatusBadRequest, "bookmark name is required")
+		return
+	}
+
+	err := h.service.UpdateBookmark(r.Context(), id, req)
+	if err != nil {
+		h.audit.Log(r.Context(), r, "update_bookmark", "bookmark", id, "failed", map[string]interface{}{"name": req.Name, "error": err.Error()})
+		h.respondWithError(w, http.StatusInternalServerError, "failed to update bookmark: "+err.Error())
+		return
+	}
+
+	h.audit.Log(r.Context(), r, "update_bookmark", "bookmark", id, "success", map[string]interface{}{"name": req.Name})
+	h.respondWithJSON(w, http.StatusOK, map[string]string{"message": "bookmark updated successfully"})
+}
+
+func (h *Handler) DeleteBookmark(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if id == "" || !validation.IsUUID(id) {
+		h.respondWithError(w, http.StatusBadRequest, "invalid bookmark ID format")
+		return
+	}
+
+	err := h.service.DeleteBookmark(r.Context(), id)
+	if err != nil {
+		h.audit.Log(r.Context(), r, "delete_bookmark", "bookmark", id, "failed", map[string]interface{}{"error": err.Error()})
+		h.respondWithError(w, http.StatusInternalServerError, "failed to delete bookmark: "+err.Error())
+		return
+	}
+
+	h.audit.Log(r.Context(), r, "delete_bookmark", "bookmark", id, "success", nil)
+	h.respondWithJSON(w, http.StatusOK, map[string]string{"message": "bookmark deleted successfully"})
+}
+
+func (h *Handler) ListBookmarks(w http.ResponseWriter, r *http.Request) {
+	cameraID := chi.URLParam(r, "id")
+	if cameraID == "" || !validation.IsUUID(cameraID) {
+		h.respondWithError(w, http.StatusBadRequest, "invalid camera ID format")
+		return
+	}
+
+	bookmarks, err := h.service.ListBookmarks(r.Context(), cameraID)
+	if err != nil {
+		h.log.Error("failed to list bookmarks", zap.String("camera_id", cameraID), zap.Error(err))
+		h.respondWithError(w, http.StatusInternalServerError, "internal server error")
+		return
+	}
+
+	h.respondWithJSON(w, http.StatusOK, bookmarks)
+}
+
+func (h *Handler) GetBookmarkByID(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if id == "" || !validation.IsUUID(id) {
+		h.respondWithError(w, http.StatusBadRequest, "invalid bookmark ID format")
+		return
+	}
+
+	b, err := h.service.GetBookmarkByID(r.Context(), id)
+	if err != nil {
+		h.respondWithError(w, http.StatusNotFound, "bookmark not found")
+		return
+	}
+
+	h.respondWithJSON(w, http.StatusOK, b)
+}

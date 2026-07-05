@@ -42,6 +42,20 @@ type Service interface {
 	ExportVideo(ctx context.Context, cameraID string, start, end time.Time, operatorID string) ([]byte, string, error)
 	SendPTZCommand(ctx context.Context, cameraID string, pan, tilt, zoom float64) error
 
+	// Bookmarks CRUD
+	CreateBookmark(ctx context.Context, cameraID string, req CreateBookmarkRequest) (*Bookmark, error)
+	UpdateBookmark(ctx context.Context, id string, req UpdateBookmarkRequest) error
+	DeleteBookmark(ctx context.Context, id string) error
+	ListBookmarks(ctx context.Context, cameraID string) ([]Bookmark, error)
+	GetBookmarkByID(ctx context.Context, id string) (*Bookmark, error)
+
+	// Timeline recordings
+	GetRecordingsForTimeline(ctx context.Context, cameraID string, start, end time.Time) ([]VideoRecording, error)
+
+	// Motion and status triggers
+	TriggerMotion(ctx context.Context, cameraID string) error
+	ToggleCameraStatus(ctx context.Context, id string) (*Camera, error)
+
 	// Lifecycle & synchronization methods
 	Start(ctx context.Context) error
 	Close()
@@ -113,6 +127,8 @@ func (s *service) CreateCamera(ctx context.Context, req CreateCameraRequest) (*C
 		Username:      req.Username,
 		PTZSupported:  req.PTZSupported,
 		ProfileToken:  req.ProfileToken,
+		RecordingMode: req.RecordingMode,
+		RetentionDays: req.RetentionDays,
 	}
 
 	if cam.MainStreamURL == "" && cam.URLRTSP != "" {
@@ -179,6 +195,8 @@ func (s *service) UpdateCamera(ctx context.Context, id string, req UpdateCameraR
 	existing.Username = req.Username
 	existing.PTZSupported = req.PTZSupported
 	existing.ProfileToken = req.ProfileToken
+	existing.RecordingMode = req.RecordingMode
+	existing.RetentionDays = req.RetentionDays
 
 	if existing.MainStreamURL == "" && existing.URLRTSP != "" {
 		existing.MainStreamURL = existing.URLRTSP
@@ -198,6 +216,19 @@ func (s *service) UpdateCamera(ctx context.Context, id string, req UpdateCameraR
 	updated, err := s.repo.Update(ctx, existing)
 	if err != nil {
 		return nil, err
+	}
+
+	// Publish status change to NATS
+	if oldStatut != updated.Statut && s.publisher != nil {
+		eventPayload := VideoEventPayload{
+			CameraID:  updated.ID,
+			EventType: "video.status",
+			Timestamp: time.Now(),
+			Details:   &updated.Statut,
+		}
+		if err := s.publisher.PublishEvent(ctx, "video.status", eventPayload); err != nil {
+			s.log.Error("Failed to publish video.status event to NATS", zap.String("camera_id", updated.ID), zap.Error(err))
+		}
 	}
 
 	// Update MediaMTX settings based on status change or RTSP URL change
@@ -754,4 +785,87 @@ func (s *service) SendPTZCommand(ctx context.Context, cameraID string, pan, tilt
 	}
 
 	return nil
+}
+
+func (s *service) CreateBookmark(ctx context.Context, cameraID string, req CreateBookmarkRequest) (*Bookmark, error) {
+	_, err := s.repo.GetByID(ctx, cameraID)
+	if err != nil {
+		return nil, err
+	}
+
+	b := &Bookmark{
+		CameraID:  cameraID,
+		Name:      req.Name,
+		Notes:     req.Notes,
+		Timestamp: req.Timestamp,
+	}
+
+	return s.repo.CreateBookmark(ctx, b)
+}
+
+func (s *service) UpdateBookmark(ctx context.Context, id string, req UpdateBookmarkRequest) error {
+	return s.repo.UpdateBookmark(ctx, id, req.Name, req.Notes)
+}
+
+func (s *service) DeleteBookmark(ctx context.Context, id string) error {
+	return s.repo.DeleteBookmark(ctx, id)
+}
+
+func (s *service) ListBookmarks(ctx context.Context, cameraID string) ([]Bookmark, error) {
+	return s.repo.ListBookmarks(ctx, cameraID)
+}
+
+func (s *service) GetBookmarkByID(ctx context.Context, id string) (*Bookmark, error) {
+	return s.repo.GetBookmarkByID(ctx, id)
+}
+
+func (s *service) GetRecordingsForTimeline(ctx context.Context, cameraID string, start, end time.Time) ([]VideoRecording, error) {
+	return s.repo.GetOverlappingRecordings(ctx, cameraID, start, end)
+}
+
+func (s *service) TriggerMotion(ctx context.Context, cameraID string) error {
+	cam, err := s.repo.GetByID(ctx, cameraID)
+	if err != nil {
+		return err
+	}
+
+	if s.publisher != nil {
+		eventPayload := VideoEventPayload{
+			CameraID:  cam.ID,
+			EventType: "video.motion",
+			Timestamp: time.Now(),
+		}
+		return s.publisher.PublishEvent(ctx, "video.motion", eventPayload)
+	}
+	return nil
+}
+
+func (s *service) ToggleCameraStatus(ctx context.Context, id string) (*Camera, error) {
+	cam, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	newStatus := "active"
+	if cam.Statut == "active" {
+		newStatus = "inactive"
+	}
+
+	req := UpdateCameraRequest{
+		Nom:           cam.Nom,
+		URLRTSP:       cam.URLRTSP,
+		MainStreamURL: cam.MainStreamURL,
+		SubStreamURL:  cam.SubStreamURL,
+		SiteID:        cam.SiteID,
+		Statut:        newStatus,
+		IP:            cam.IP,
+		Port:          cam.Port,
+		Username:      cam.Username,
+		PTZSupported:  cam.PTZSupported,
+		ProfileToken:  cam.ProfileToken,
+		RecordingMode: cam.RecordingMode,
+		RetentionDays: cam.RetentionDays,
+	}
+
+	return s.UpdateCamera(ctx, id, req)
 }

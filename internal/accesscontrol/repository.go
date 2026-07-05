@@ -18,6 +18,9 @@ var (
 type Repository interface {
 	ListDoors(ctx context.Context) ([]Door, error)
 	GetDoorByID(ctx context.Context, id string) (*Door, error)
+	CreateDoor(ctx context.Context, d *Door) (*Door, error)
+	UpdateDoor(ctx context.Context, id string, d *Door) (*Door, error)
+	DeleteDoor(ctx context.Context, id string) error
 	UpdateDoorStatus(ctx context.Context, id string, status string) error
 	GetBadgeByNumber(ctx context.Context, number string) (*Badge, error)
 	AssignBadge(ctx context.Context, number string, userID string) (*Badge, error)
@@ -29,6 +32,13 @@ type Repository interface {
 	CreateCardholder(ctx context.Context, c *Cardholder) (*Cardholder, error)
 	UpdateCardholder(ctx context.Context, id string, c *Cardholder) (*Cardholder, error)
 	DeleteCardholder(ctx context.Context, id string) error
+
+	// Site CRUD
+	ListSites(ctx context.Context) ([]Site, error)
+	GetSiteByID(ctx context.Context, id string) (*Site, error)
+	CreateSite(ctx context.Context, s *Site) (*Site, error)
+	UpdateSite(ctx context.Context, id string, s *Site) (*Site, error)
+	DeleteSite(ctx context.Context, id string) error
 }
 
 type postgresRepository struct {
@@ -418,6 +428,131 @@ func (r *postgresRepository) DeleteCardholder(ctx context.Context, id string) er
 	}
 	if tag.RowsAffected() == 0 {
 		return errors.New("cardholder not found")
+	}
+	return nil
+}
+
+func (r *postgresRepository) CreateDoor(ctx context.Context, d *Door) (*Door, error) {
+	query := `
+		INSERT INTO doors (site_id, zone_id, name, description, status)
+		VALUES ($1, $2, $3, $4, $5)
+		RETURNING id, created_at`
+	var zoneID sql.NullString
+	if d.ZoneID != nil {
+		zoneID.String = *d.ZoneID
+		zoneID.Valid = true
+	}
+	if d.Status == "" {
+		d.Status = "closed"
+	}
+	err := r.db.QueryRow(ctx, query, d.SiteID, zoneID, d.Name, d.Description, d.Status).Scan(&d.ID, &d.CreatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create door: %w", err)
+	}
+	return d, nil
+}
+
+func (r *postgresRepository) UpdateDoor(ctx context.Context, id string, d *Door) (*Door, error) {
+	query := `
+		UPDATE doors
+		SET site_id = $1, zone_id = $2, name = $3, description = $4, status = $5
+		WHERE id = $6`
+	var zoneID sql.NullString
+	if d.ZoneID != nil {
+		zoneID.String = *d.ZoneID
+		zoneID.Valid = true
+	}
+	tag, err := r.db.Exec(ctx, query, d.SiteID, zoneID, d.Name, d.Description, d.Status, id)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update door: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return nil, ErrDoorNotFound
+	}
+	d.ID = id
+	return d, nil
+}
+
+func (r *postgresRepository) DeleteDoor(ctx context.Context, id string) error {
+	query := `DELETE FROM doors WHERE id = $1`
+	tag, err := r.db.Exec(ctx, query, id)
+	if err != nil {
+		return fmt.Errorf("failed to delete door: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrDoorNotFound
+	}
+	return nil
+}
+
+func (r *postgresRepository) ListSites(ctx context.Context) ([]Site, error) {
+	query := `SELECT id, name, description, created_at FROM sites ORDER BY name ASC`
+	rows, err := r.db.Query(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query sites: %w", err)
+	}
+	defer rows.Close()
+
+	var list []Site
+	for rows.Next() {
+		var s Site
+		if err := rows.Scan(&s.ID, &s.Name, &s.Description, &s.CreatedAt); err != nil {
+			return nil, fmt.Errorf("failed to scan site row: %w", err)
+		}
+		list = append(list, s)
+	}
+	return list, nil
+}
+
+func (r *postgresRepository) GetSiteByID(ctx context.Context, id string) (*Site, error) {
+	query := `SELECT id, name, description, created_at FROM sites WHERE id = $1`
+	var s Site
+	err := r.db.QueryRow(ctx, query, id).Scan(&s.ID, &s.Name, &s.Description, &s.CreatedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, errors.New("site not found")
+		}
+		return nil, fmt.Errorf("failed to get site by id: %w", err)
+	}
+	return &s, nil
+}
+
+func (r *postgresRepository) CreateSite(ctx context.Context, s *Site) (*Site, error) {
+	query := `
+		INSERT INTO sites (name, description)
+		VALUES ($1, $2)
+		RETURNING id, created_at`
+	err := r.db.QueryRow(ctx, query, s.Name, s.Description).Scan(&s.ID, &s.CreatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create site: %w", err)
+	}
+	return s, nil
+}
+
+func (r *postgresRepository) UpdateSite(ctx context.Context, id string, s *Site) (*Site, error) {
+	query := `
+		UPDATE sites
+		SET name = $1, description = $2
+		WHERE id = $3`
+	tag, err := r.db.Exec(ctx, query, s.Name, s.Description, id)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update site: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return nil, errors.New("site not found")
+	}
+	s.ID = id
+	return s, nil
+}
+
+func (r *postgresRepository) DeleteSite(ctx context.Context, id string) error {
+	query := `DELETE FROM sites WHERE id = $1`
+	tag, err := r.db.Exec(ctx, query, id)
+	if err != nil {
+		return fmt.Errorf("failed to delete site: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return errors.New("site not found")
 	}
 	return nil
 }

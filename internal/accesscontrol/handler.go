@@ -287,3 +287,227 @@ func (h *Handler) respondWithJSON(w http.ResponseWriter, code int, payload inter
 	w.WriteHeader(code)
 	w.Write(response)
 }
+
+func (h *Handler) GetCardholderByID(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if id == "" || !validation.IsUUID(id) {
+		h.respondWithError(w, http.StatusBadRequest, "invalid cardholder ID format")
+		return
+	}
+
+	cardholder, err := h.service.GetCardholderByID(r.Context(), id)
+	if err != nil {
+		h.respondWithError(w, http.StatusNotFound, "cardholder not found")
+		return
+	}
+
+	h.respondWithJSON(w, http.StatusOK, cardholder)
+}
+
+func (h *Handler) GetDoorByID(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if id == "" || !validation.IsUUID(id) {
+		h.respondWithError(w, http.StatusBadRequest, "invalid door ID format")
+		return
+	}
+
+	door, err := h.service.GetDoorByID(r.Context(), id)
+	if err != nil {
+		h.respondWithError(w, http.StatusNotFound, "door not found")
+		return
+	}
+
+	h.respondWithJSON(w, http.StatusOK, door)
+}
+
+func (h *Handler) CreateDoor(w http.ResponseWriter, r *http.Request) {
+	var req DoorRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.respondWithError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.Name == "" || req.SiteID == "" || !validation.IsUUID(req.SiteID) {
+		h.respondWithError(w, http.StatusBadRequest, "valid name and site_id are required")
+		return
+	}
+
+	d := &Door{
+		SiteID:      req.SiteID,
+		ZoneID:      req.ZoneID,
+		Name:        req.Name,
+		Description: req.Description,
+		Status:      req.Status,
+	}
+
+	res, err := h.service.CreateDoor(r.Context(), d)
+	if err != nil {
+		h.log.Error("failed to create door", zap.Error(err))
+		h.respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	h.audit.Log(r.Context(), r, "create_door", "door", res.ID, "success", map[string]interface{}{"name": res.Name})
+	h.respondWithJSON(w, http.StatusCreated, res)
+}
+
+func (h *Handler) UpdateDoor(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if id == "" || !validation.IsUUID(id) {
+		h.respondWithError(w, http.StatusBadRequest, "invalid door ID format")
+		return
+	}
+
+	var req DoorRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.respondWithError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.Name == "" || req.SiteID == "" || !validation.IsUUID(req.SiteID) {
+		h.respondWithError(w, http.StatusBadRequest, "valid name and site_id are required")
+		return
+	}
+
+	d := &Door{
+		SiteID:      req.SiteID,
+		ZoneID:      req.ZoneID,
+		Name:        req.Name,
+		Description: req.Description,
+		Status:      req.Status,
+	}
+
+	res, err := h.service.UpdateDoor(r.Context(), id, d)
+	if err != nil {
+		h.log.Error("failed to update door", zap.String("id", id), zap.Error(err))
+		h.respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	h.audit.Log(r.Context(), r, "update_door", "door", id, "success", map[string]interface{}{"name": res.Name})
+	h.respondWithJSON(w, http.StatusOK, res)
+}
+
+func (h *Handler) DeleteDoor(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if id == "" || !validation.IsUUID(id) {
+		h.respondWithError(w, http.StatusBadRequest, "invalid door ID format")
+		return
+	}
+
+	err := h.service.DeleteDoor(r.Context(), id)
+	if err != nil {
+		h.log.Error("failed to delete door", zap.String("id", id), zap.Error(err))
+		h.respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	h.audit.Log(r.Context(), r, "delete_door", "door", id, "success", nil)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) ListSites(w http.ResponseWriter, r *http.Request) {
+	sites, err := h.service.ListSites(r.Context())
+	if err != nil {
+		h.log.Error("failed to list sites", zap.Error(err))
+		h.respondWithError(w, http.StatusInternalServerError, "failed to list sites")
+		return
+	}
+	h.respondWithJSON(w, http.StatusOK, sites)
+}
+
+func (h *Handler) GetSiteByID(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if id == "" || !validation.IsUUID(id) {
+		h.respondWithError(w, http.StatusBadRequest, "invalid site ID format")
+		return
+	}
+
+	site, err := h.service.GetSiteByID(r.Context(), id)
+	if err != nil {
+		h.respondWithError(w, http.StatusNotFound, "site not found")
+		return
+	}
+
+	h.respondWithJSON(w, http.StatusOK, site)
+}
+
+func (h *Handler) CreateSite(w http.ResponseWriter, r *http.Request) {
+	var req SiteRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.respondWithError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.Name == "" {
+		h.respondWithError(w, http.StatusBadRequest, "name is required")
+		return
+	}
+
+	s := &Site{
+		Name:        req.Name,
+		Description: req.Description,
+	}
+
+	res, err := h.service.CreateSite(r.Context(), s)
+	if err != nil {
+		h.log.Error("failed to create site", zap.Error(err))
+		h.respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	h.audit.Log(r.Context(), r, "create_site", "site", res.ID, "success", map[string]interface{}{"name": res.Name})
+	h.respondWithJSON(w, http.StatusCreated, res)
+}
+
+func (h *Handler) UpdateSite(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if id == "" || !validation.IsUUID(id) {
+		h.respondWithError(w, http.StatusBadRequest, "invalid site ID format")
+		return
+	}
+
+	var req SiteRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.respondWithError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.Name == "" {
+		h.respondWithError(w, http.StatusBadRequest, "name is required")
+		return
+	}
+
+	s := &Site{
+		Name:        req.Name,
+		Description: req.Description,
+	}
+
+	res, err := h.service.UpdateSite(r.Context(), id, s)
+	if err != nil {
+		h.log.Error("failed to update site", zap.String("id", id), zap.Error(err))
+		h.respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	h.audit.Log(r.Context(), r, "update_site", "site", id, "success", map[string]interface{}{"name": res.Name})
+	h.respondWithJSON(w, http.StatusOK, res)
+}
+
+func (h *Handler) DeleteSite(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if id == "" || !validation.IsUUID(id) {
+		h.respondWithError(w, http.StatusBadRequest, "invalid site ID format")
+		return
+	}
+
+	err := h.service.DeleteSite(r.Context(), id)
+	if err != nil {
+		h.log.Error("failed to delete site", zap.String("id", id), zap.Error(err))
+		h.respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	h.audit.Log(r.Context(), r, "delete_site", "site", id, "success", nil)
+	w.WriteHeader(http.StatusNoContent)
+}

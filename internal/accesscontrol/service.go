@@ -10,15 +10,27 @@ import (
 
 type Service interface {
 	ListDoors(ctx context.Context) ([]Door, error)
+	GetDoorByID(ctx context.Context, id string) (*Door, error)
+	CreateDoor(ctx context.Context, d *Door) (*Door, error)
+	UpdateDoor(ctx context.Context, id string, d *Door) (*Door, error)
+	DeleteDoor(ctx context.Context, id string) error
 	AssignBadge(ctx context.Context, number string, userID string) (*Badge, error)
 	OpenDoor(ctx context.Context, id string) error
 	CloseDoor(ctx context.Context, id string) error
 	SwipeBadge(ctx context.Context, doorID string, number string) (*SwipeBadgeResponse, error)
 	ListAccessLogs(ctx context.Context) ([]AccessLog, error)
 	ListCardholders(ctx context.Context) ([]Cardholder, error)
+	GetCardholderByID(ctx context.Context, id string) (*Cardholder, error)
 	CreateCardholder(ctx context.Context, c *Cardholder) (*Cardholder, error)
 	UpdateCardholder(ctx context.Context, id string, c *Cardholder) (*Cardholder, error)
 	DeleteCardholder(ctx context.Context, id string) error
+
+	// Sites CRUD
+	ListSites(ctx context.Context) ([]Site, error)
+	GetSiteByID(ctx context.Context, id string) (*Site, error)
+	CreateSite(ctx context.Context, s *Site) (*Site, error)
+	UpdateSite(ctx context.Context, id string, s *Site) (*Site, error)
+	DeleteSite(ctx context.Context, id string) error
 }
 
 type service struct {
@@ -235,4 +247,44 @@ func (s *service) publishNatsEvent(ctx context.Context, granted bool, log *Acces
 			zap.String("badge_number", log.BadgeNumber),
 		)
 	}
+}
+
+func (s *service) GetDoorByID(ctx context.Context, id string) (*Door, error) {
+	return s.repo.GetDoorByID(ctx, id)
+}
+
+func (s *service) CreateDoor(ctx context.Context, d *Door) (*Door, error) {
+	return s.repo.CreateDoor(ctx, d)
+}
+
+func (s *service) UpdateDoor(ctx context.Context, id string, d *Door) (*Door, error) {
+	return s.repo.UpdateDoor(ctx, id, d)
+}
+
+func (s *service) DeleteDoor(ctx context.Context, id string) error {
+	return s.repo.DeleteDoor(ctx, id)
+}
+
+func (s *service) GetCardholderByID(ctx context.Context, id string) (*Cardholder, error) {
+	return s.repo.GetCardholderByID(ctx, id)
+}
+
+func (s *service) ListSites(ctx context.Context) ([]Site, error) {
+	return s.repo.ListSites(ctx)
+}
+
+func (s *service) GetSiteByID(ctx context.Context, id string) (*Site, error) {
+	return s.repo.GetSiteByID(ctx, id)
+}
+
+func (s *service) CreateSite(ctx context.Context, si *Site) (*Site, error) {
+	return s.repo.CreateSite(ctx, si)
+}
+
+func (s *service) UpdateSite(ctx context.Context, id string, si *Site) (*Site, error) {
+	return s.repo.UpdateSite(ctx, id, si)
+}
+
+func (s *service) DeleteSite(ctx context.Context, id string) error {
+	return s.repo.DeleteSite(ctx, id)
 }

@@ -18,6 +18,10 @@ func (m *mockPublisher) PublishAlarmTriggered(ctx context.Context, payload inter
 	return nil
 }
 
+func (m *mockPublisher) PublishEvent(ctx context.Context, topic string, payload interface{}) error {
+	return nil
+}
+
 func (m *mockPublisher) Close() {}
 
 type mockRepository struct {
@@ -101,6 +105,34 @@ func (m *mockRepository) CreateHistoryLog(ctx context.Context, log *intrusion.Hi
 	log.CreeLe = time.Now()
 	m.history = append(m.history, *log)
 	return log, nil
+}
+
+func (m *mockRepository) CreateZone(ctx context.Context, z *intrusion.Zone) (*intrusion.Zone, error) {
+	return z, nil
+}
+func (m *mockRepository) UpdateZone(ctx context.Context, id string, z *intrusion.Zone) (*intrusion.Zone, error) {
+	return z, nil
+}
+func (m *mockRepository) DeleteZone(ctx context.Context, id string) error {
+	return nil
+}
+func (m *mockRepository) CreateSensor(ctx context.Context, c *intrusion.Capteur) (*intrusion.Capteur, error) {
+	return c, nil
+}
+func (m *mockRepository) UpdateSensor(ctx context.Context, id string, c *intrusion.Capteur) (*intrusion.Capteur, error) {
+	return c, nil
+}
+func (m *mockRepository) DeleteSensor(ctx context.Context, id string) error {
+	return nil
+}
+func (m *mockRepository) ListAllAlarms(ctx context.Context) ([]intrusion.Alarme, error) {
+	return nil, nil
+}
+func (m *mockRepository) GetAlarmByID(ctx context.Context, id string) (*intrusion.Alarme, error) {
+	return nil, nil
+}
+func (m *mockRepository) UpdateAlarmStatus(ctx context.Context, id string, statut string, userID *string) error {
+	return nil
 }
 
 func TestIntrusionService(t *testing.T) {

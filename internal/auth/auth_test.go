@@ -59,6 +59,82 @@ func (m *mockRepository) CheckEntityPermission(ctx context.Context, userID strin
 	return true, nil
 }
 
+func (m *mockRepository) UpdatePassword(ctx context.Context, id string, passwordHash string) error {
+	return nil
+}
+
+func (m *mockRepository) ListUsers(ctx context.Context) ([]auth.User, error) {
+	return nil, nil
+}
+
+func (m *mockRepository) DeleteUser(ctx context.Context, id string) error {
+	return nil
+}
+
+func (m *mockRepository) ListRoles(ctx context.Context) ([]auth.Role, error) {
+	return nil, nil
+}
+
+func (m *mockRepository) ListPermissions(ctx context.Context) ([]auth.Permission, error) {
+	return nil, nil
+}
+
+func (m *mockRepository) GetEntityPermissionsForUser(ctx context.Context, userID string) ([]auth.EntityPermission, error) {
+	return nil, nil
+}
+
+func (m *mockRepository) SaveEntityPermissions(ctx context.Context, userID string, entityPermissions []auth.EntityPermission) error {
+	return nil
+}
+
+func (m *mockRepository) UpdateMfaSecret(ctx context.Context, userID string, secret string) error {
+	return nil
+}
+
+func (m *mockRepository) EnableMfa(ctx context.Context, userID string) error {
+	return nil
+}
+
+func (m *mockRepository) DisableMfa(ctx context.Context, userID string) error {
+	return nil
+}
+
+func (m *mockRepository) CreateRole(ctx context.Context, name, description string, permissions []string) (*auth.Role, error) {
+	return nil, nil
+}
+
+func (m *mockRepository) UpdateRole(ctx context.Context, roleID int, description string, permissions []string) error {
+	return nil
+}
+
+func (m *mockRepository) DeleteRole(ctx context.Context, roleID int) error {
+	return nil
+}
+
+func (m *mockRepository) CreateSession(ctx context.Context, userID, tokenHash, ip, userAgent string, expiresAt time.Time) (string, error) {
+	return "test-session-id", nil
+}
+
+func (m *mockRepository) IsSessionActive(ctx context.Context, sessionID string) (bool, error) {
+	return true, nil
+}
+
+func (m *mockRepository) RevokeSession(ctx context.Context, sessionID string) error {
+	return nil
+}
+
+func (m *mockRepository) RevokeUserSessions(ctx context.Context, userID string) error {
+	return nil
+}
+
+func (m *mockRepository) ListActiveSessions(ctx context.Context) ([]auth.Session, error) {
+	return nil, nil
+}
+
+func (m *mockRepository) ListUserActiveSessions(ctx context.Context, userID string) ([]auth.Session, error) {
+	return nil, nil
+}
+
 func TestAuthService(t *testing.T) {
 	ctx := context.Background()
 	secret := "test-secret-key-12345"
@@ -94,7 +170,7 @@ func TestAuthService(t *testing.T) {
 	service := auth.NewService(repo, secret, expiry)
 
 	t.Run("Successful Login", func(t *testing.T) {
-		resp, err := service.Login(ctx, "user@example.com", "correctpassword")
+		resp, err := service.Login(ctx, "user@example.com", "correctpassword", "127.0.0.1", "test-agent")
 		if err != nil {
 			t.Fatalf("expected no error, got: %v", err)
 		}
@@ -127,14 +203,14 @@ func TestAuthService(t *testing.T) {
 	})
 
 	t.Run("Failed Login - Wrong Password", func(t *testing.T) {
-		_, err := service.Login(ctx, "user@example.com", "wrongpassword")
+		_, err := service.Login(ctx, "user@example.com", "wrongpassword", "127.0.0.1", "test-agent")
 		if !errors.Is(err, auth.ErrInvalidCredentials) {
 			t.Errorf("expected ErrInvalidCredentials, got: %v", err)
 		}
 	})
 
 	t.Run("Failed Login - Non-existent User", func(t *testing.T) {
-		_, err := service.Login(ctx, "nonexistent@example.com", "password")
+		_, err := service.Login(ctx, "nonexistent@example.com", "password", "127.0.0.1", "test-agent")
 		if !errors.Is(err, auth.ErrInvalidCredentials) {
 			t.Errorf("expected ErrInvalidCredentials, got: %v", err)
 		}

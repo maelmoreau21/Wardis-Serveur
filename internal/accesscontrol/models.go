@@ -91,3 +91,16 @@ type SwipeBadgeResponse struct {
 	AccessGranted bool   `json:"access_granted"`
 	Message       string `json:"message"`
 }
+
+type SiteRequest struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
+type DoorRequest struct {
+	SiteID      string  `json:"site_id"`
+	ZoneID      *string `json:"zone_id,omitempty"`
+	Name        string  `json:"name"`
+	Description string  `json:"description"`
+	Status      string  `json:"status"` // "open", "closed"
+}

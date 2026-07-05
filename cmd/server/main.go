@@ -30,6 +30,7 @@ import (
 	"wardis-server/internal/logger"
 	"wardis-server/internal/ratelimit"
 	"wardis-server/internal/video"
+	"wardis-server/internal/layout"
 )
 
 const serverVersion = "0.0.1"
@@ -177,6 +178,11 @@ func main() {
 	eventsService := events.NewService(eventsRepo, cfg.NatsURL, log)
 	eventsHandler := events.NewHandler(eventsService, log)
 
+	// 5f. Initialize Layout Components
+	layoutRepo := layout.NewRepository(dbPool)
+	layoutService := layout.NewService(layoutRepo, log)
+	layoutHandler := layout.NewHandler(layoutService, log, auditLogger)
+
 	// Start NATS subscriber for Events
 	if err := eventsService.Start(ctx); err != nil {
 		log.Error("Failed to start NATS event subscriber", zap.Error(err))
@@ -250,19 +256,34 @@ func main() {
 	r.Group(func(r chi.Router) {
 		r.Use(loginRateLimiter.Limit)
 		r.Post("/login", authHandler.Login)
+		r.Post("/login/mfa", authHandler.LoginMfa)
 		r.Post("/logout", authHandler.Logout)
 		r.Post("/cameras/auth", videoHandler.MediaMtxAuth)
 	})
 
+	// Protected Routes
 	// Protected Routes
 	r.Group(func(r chi.Router) {
 		r.Use(auth.AuthMiddleware(authService))
 		r.Get("/me", authHandler.Me)
 		r.Put("/api/auth/me/password", authHandler.UpdatePassword)
 
+		// MFA Routes
+		r.Post("/api/auth/mfa/setup", authHandler.SetupMfa)
+		r.Post("/api/auth/mfa/enable", authHandler.EnableMfa)
+		r.Post("/api/auth/mfa/disable", authHandler.DisableMfa)
+
+		// My Sessions Routes
+		r.Get("/api/auth/me/sessions", authHandler.ListMySessions)
+		r.Delete("/api/auth/me/sessions/{id}", authHandler.RevokeSession)
+
 		// Access Control Routes
 		r.Get("/doors", acHandler.ListDoors)
+		r.Get("/doors/{id}", acHandler.GetDoorByID)
 		r.Post("/doors/{id}/swipe", acHandler.SwipeBadge)
+		r.Get("/sites", acHandler.ListSites)
+		r.Get("/sites/{id}", acHandler.GetSiteByID)
+		r.Get("/cardholders/{id}", acHandler.GetCardholderByID)
 
 		// Video Routes
 		r.Get("/api/v1/video/export", videoHandler.ExportVideo)
@@ -273,13 +294,26 @@ func main() {
 		r.Post("/cameras/{id}/ptz", videoHandler.SendPTZCommand)
 		r.Get("/cameras/active-streams", videoHandler.ListActiveStreams)
 		r.Post("/cameras/{id}/sync", videoHandler.SyncRecording)
+		r.Get("/cameras/{id}/recordings", videoHandler.GetRecordingsForTimeline)
+		r.Post("/cameras/{id}/motion", videoHandler.TriggerMotion)
+		r.Post("/cameras/{id}/status", videoHandler.ToggleCameraStatus)
+
+		// Bookmarks Routes
+		r.Get("/cameras/{id}/bookmarks", videoHandler.ListBookmarks)
+		r.Post("/cameras/{id}/bookmarks", videoHandler.CreateBookmark)
+		r.Get("/bookmarks/{id}", videoHandler.GetBookmarkByID)
+		r.Put("/bookmarks/{id}", videoHandler.UpdateBookmark)
+		r.Delete("/bookmarks/{id}", videoHandler.DeleteBookmark)
 
 		// Intrusion Routes
 		r.Get("/zones", intrusionHandler.ListZones)
+		r.Get("/zones/{id}", intrusionHandler.GetZoneByID)
 		r.Post("/zones/{id}/arm", intrusionHandler.ArmZone)
 		r.Post("/zones/{id}/disarm", intrusionHandler.DisarmZone)
 		r.Get("/capteurs", intrusionHandler.ListSensors)
+		r.Get("/capteurs/{id}", intrusionHandler.GetSensorByID)
 		r.Post("/capteurs/{id}/trigger", intrusionHandler.TriggerSensor)
+		r.Get("/alarmes", intrusionHandler.ListAllAlarms)
 		r.Get("/alarmes/active", intrusionHandler.ListActiveAlarms)
 		r.Post("/alarmes/{id}/acquit", intrusionHandler.AcknowledgeAlarm)
 		r.Post("/alarmes/{id}/transfer", intrusionHandler.TransferAlarm)
@@ -290,7 +324,14 @@ func main() {
 		r.Get("/events/stream", eventsHandler.StreamEvents)
 		r.Get("/events/ws", eventsHandler.StreamEventsWS)
 
-		// Admin only access control routes
+		// Saved Views / Layouts Routes
+		r.Get("/api/layouts", layoutHandler.List)
+		r.Get("/api/layouts/{id}", layoutHandler.GetByID)
+		r.Post("/api/layouts", layoutHandler.Create)
+		r.Put("/api/layouts/{id}", layoutHandler.Update)
+		r.Delete("/api/layouts/{id}", layoutHandler.Delete)
+
+		// Admin only routes
 		r.Group(func(r chi.Router) {
 			r.Use(auth.RequireRole("admin"))
 			r.Post("/badges/assign", acHandler.AssignBadge)
@@ -302,6 +343,26 @@ func main() {
 			r.Put("/cardholders/{id}", acHandler.UpdateCardholder)
 			r.Delete("/cardholders/{id}", acHandler.DeleteCardholder)
 
+			// Doors admin CRUD
+			r.Post("/doors", acHandler.CreateDoor)
+			r.Put("/doors/{id}", acHandler.UpdateDoor)
+			r.Delete("/doors/{id}", acHandler.DeleteDoor)
+
+			// Sites admin CRUD
+			r.Post("/sites", acHandler.CreateSite)
+			r.Put("/sites/{id}", acHandler.UpdateSite)
+			r.Delete("/sites/{id}", acHandler.DeleteSite)
+
+			// Intrusion zones admin CRUD
+			r.Post("/zones", intrusionHandler.CreateZone)
+			r.Put("/zones/{id}", intrusionHandler.UpdateZone)
+			r.Delete("/zones/{id}", intrusionHandler.DeleteZone)
+
+			// Intrusion sensors admin CRUD
+			r.Post("/capteurs", intrusionHandler.CreateSensor)
+			r.Put("/capteurs/{id}", intrusionHandler.UpdateSensor)
+			r.Delete("/capteurs/{id}", intrusionHandler.DeleteSensor)
+
 			// User Management Routes
 			r.Get("/api/users", authHandler.ListUsers)
 			r.Post("/api/users", authHandler.CreateUser)
@@ -310,6 +371,18 @@ func main() {
 			r.Get("/api/permissions", authHandler.ListPermissions)
 			r.Get("/api/users/{id}/permissions", authHandler.GetEntityPermissionsForUser)
 			r.Post("/api/users/{id}/permissions", authHandler.SaveEntityPermissions)
+
+			// Roles CRUD Admin Routes
+			r.Post("/api/roles", authHandler.CreateRole)
+			r.Put("/api/roles/{id}", authHandler.UpdateRole)
+			r.Delete("/api/roles/{id}", authHandler.DeleteRole)
+
+			// Sessions Admin Routes
+			r.Get("/api/sessions", authHandler.ListActiveSessions)
+			r.Delete("/api/sessions/{id}", authHandler.RevokeSession)
+
+			// Audit Logs Route
+			r.Get("/api/audit-logs", auditLogger.ListHandler)
 
 			// Video Admin Routes
 			r.Post("/cameras", videoHandler.CreateCamera)

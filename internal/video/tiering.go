@@ -13,6 +13,7 @@ import (
 	"github.com/minio/minio-go/v7"
 	"github.com/nats-io/nats.go"
 	"go.uber.org/zap"
+	"strings"
 )
 
 // Start starts the NATS subscribers and the periodic video tiering background worker.
@@ -21,8 +22,8 @@ func (s *service) Start(ctx context.Context) error {
 		return errors.New("cannot start background worker: config is nil")
 	}
 
-	// 1. Connect to NATS for Trickling/Sync subscriber
-	s.log.Info("Connecting to NATS for Video Sync...", zap.String("url", s.cfg.NatsURL))
+	// 1. Connect to NATS for Trickling/Sync/Motion subscriber
+	s.log.Info("Connecting to NATS for Video Sync & Motion...", zap.String("url", s.cfg.NatsURL))
 	nc, err := nats.Connect(s.cfg.NatsURL)
 	if err != nil {
 		return fmt.Errorf("failed to connect to NATS in video service: %w", err)
@@ -30,7 +31,7 @@ func (s *service) Start(ctx context.Context) error {
 	s.natsConn = nc
 
 	// 2. Subscribe to video.sync topic
-	sub, err := s.natsConn.Subscribe("video.sync", func(msg *nats.Msg) {
+	subSync, err := s.natsConn.Subscribe("video.sync", func(msg *nats.Msg) {
 		s.handleNatsSyncMessage(msg)
 	})
 	if err != nil {
@@ -38,11 +39,26 @@ func (s *service) Start(ctx context.Context) error {
 		s.natsConn = nil
 		return fmt.Errorf("failed to subscribe to video.sync NATS topic: %w", err)
 	}
-	s.natsSubs = append(s.natsSubs, sub)
+	s.natsSubs = append(s.natsSubs, subSync)
 	s.log.Info("Subscribed to video.sync NATS topic")
+
+	// 2b. Subscribe to video.motion topic
+	subMotion, err := s.natsConn.Subscribe("video.motion", func(msg *nats.Msg) {
+		s.handleNatsMotionMessage(msg)
+	})
+	if err != nil {
+		s.natsConn.Close()
+		s.natsConn = nil
+		return fmt.Errorf("failed to subscribe to video.motion NATS topic: %w", err)
+	}
+	s.natsSubs = append(s.natsSubs, subMotion)
+	s.log.Info("Subscribed to video.motion NATS topic")
 
 	// 3. Start Video Tiering Job worker goroutine
 	go s.runTieringWorker(ctx)
+
+	// 4. Start Recording & Retention Scheduler
+	go s.runRecordingScheduler(ctx)
 
 	return nil
 }
@@ -300,4 +316,140 @@ func (s *service) runTieringJob(ctx context.Context) {
 	}
 
 	s.log.Info("Video Tiering job run completed")
+}
+
+// handleNatsMotionMessage handles motion detection events from NATS
+func (s *service) handleNatsMotionMessage(msg *nats.Msg) {
+	s.log.Debug("Received video.motion NATS message", zap.Int("size", len(msg.Data)))
+	var payload VideoEventPayload
+	if err := json.Unmarshal(msg.Data, &payload); err != nil {
+		s.log.Error("Failed to unmarshal NATS video motion payload", zap.Error(err))
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	camera, err := s.repo.GetByID(ctx, payload.CameraID)
+	if err != nil {
+		s.log.Error("Failed to look up camera for NATS motion event", zap.String("camera_id", payload.CameraID), zap.Error(err))
+		return
+	}
+
+	// Trigger motion recording if configured
+	if camera.RecordingMode == "motion" || camera.RecordingMode == "both" {
+		startTime := payload.Timestamp
+		if startTime.IsZero() {
+			startTime = time.Now()
+		}
+		endTime := startTime.Add(30 * time.Second)
+
+		// Create simulated 1-byte file to record motion segment
+		dummyData := []byte{0}
+		filename := fmt.Sprintf("motion_%d_%d.mp4", startTime.Unix(), endTime.Unix())
+
+		_, err := s.SyncRecording(ctx, camera.ID, startTime, endTime, dummyData, filename)
+		if err != nil {
+			s.log.Error("Failed to auto-record motion event", zap.String("camera_id", camera.ID), zap.Error(err))
+		} else {
+			s.log.Info("Successfully auto-recorded motion event segment", zap.String("camera_id", camera.ID), zap.Time("start", startTime))
+		}
+	}
+}
+
+// runRecordingScheduler runs the loop for scheduling continuous recordings and enforcing camera-level retention
+func (s *service) runRecordingScheduler(ctx context.Context) {
+	s.log.Info("Starting Continuous Recording and Retention Scheduler")
+
+	// Check every minute
+	ticker := time.NewTicker(1 * time.Minute)
+	defer ticker.Stop()
+
+	// Initial run
+	s.runRecordingScheduleJob(ctx)
+
+	for {
+		select {
+		case <-s.stopChan:
+			s.log.Info("Recording Scheduler worker stopped by stop signal")
+			return
+		case <-ctx.Done():
+			s.log.Info("Recording Scheduler worker stopped by context cancellation")
+			return
+		case <-ticker.C:
+			s.runRecordingScheduleJob(ctx)
+		}
+	}
+}
+
+func (s *service) runRecordingScheduleJob(ctx context.Context) {
+	s.log.Debug("Running Recording Schedule and Retention Job...")
+	cameras, err := s.repo.List(ctx)
+	if err != nil {
+		s.log.Error("Failed to fetch cameras in recording scheduler", zap.Error(err))
+		return
+	}
+
+	now := time.Now()
+
+	for _, cam := range cameras {
+		if cam.Statut != "active" {
+			continue
+		}
+
+		// 1. Handle continuous recording
+		if cam.RecordingMode == "continuous" || cam.RecordingMode == "both" {
+			startTime := now.Add(-1 * time.Minute)
+			endTime := now
+
+			// Check if a recording already exists for this interval
+			existing, err := s.repo.GetOverlappingRecordings(ctx, cam.ID, startTime, endTime)
+			if err == nil && len(existing) == 0 {
+				// No recording covers this time, generate a continuous segment
+				dummyData := []byte{0}
+				filename := fmt.Sprintf("cont_%d_%d.mp4", startTime.Unix(), endTime.Unix())
+				_, err := s.SyncRecording(ctx, cam.ID, startTime, endTime, dummyData, filename)
+				if err != nil {
+					s.log.Error("Failed to schedule continuous recording segment", zap.String("camera_id", cam.ID), zap.Error(err))
+				}
+			}
+		}
+
+		// 2. Enforce camera-specific retention policy
+		retentionDays := cam.RetentionDays
+		if retentionDays <= 0 {
+			retentionDays = 30 // Default fallback
+		}
+
+		threshold := now.AddDate(0, 0, -retentionDays)
+		// Retrieve recordings for this camera older than the threshold
+		// We query from long ago (e.g. 10 years ago) to threshold
+		oldRecordings, err := s.repo.GetOverlappingRecordings(ctx, cam.ID, now.AddDate(-10, 0, 0), threshold)
+		if err != nil {
+			s.log.Error("Failed to fetch old recordings for retention cleanup", zap.String("camera_id", cam.ID), zap.Error(err))
+			continue
+		}
+
+		for _, rec := range oldRecordings {
+			s.log.Info("Retention: cleaning up expired video recording", zap.String("id", rec.ID), zap.String("camera_id", cam.ID), zap.Time("start", rec.StartTime))
+			
+			// Delete DB record
+			if err := s.repo.DeleteRecording(ctx, rec.ID); err != nil {
+				s.log.Error("Retention: failed to delete recording index", zap.String("id", rec.ID), zap.Error(err))
+				continue
+			}
+
+			// Clean up file from storage
+			if rec.StorageType == "local" {
+				localPath := filepath.Join(s.cfg.RecordingsLocalDir, rec.Filepath)
+				_ = os.Remove(localPath)
+			} else if rec.StorageType == "cloud" && s.minioClient != nil {
+				trimmed := strings.TrimPrefix(rec.Filepath, "minio://")
+				parts := strings.SplitN(trimmed, "/", 2)
+				if len(parts) == 2 {
+					_ = s.minioClient.RemoveObject(ctx, parts[0], parts[1], minio.RemoveObjectOptions{})
+				}
+			}
+		}
+	}
 }

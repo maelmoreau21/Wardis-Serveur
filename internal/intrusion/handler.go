@@ -294,3 +294,211 @@ func (h *Handler) respondWithJSON(w http.ResponseWriter, code int, payload inter
 	w.Write(response)
 }
 
+func (h *Handler) GetZoneByID(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if id == "" || !validation.IsUUID(id) {
+		h.respondWithError(w, http.StatusBadRequest, "invalid zone ID format")
+		return
+	}
+
+	zone, err := h.service.GetZoneByID(r.Context(), id)
+	if err != nil {
+		h.respondWithError(w, http.StatusNotFound, "zone not found")
+		return
+	}
+
+	h.respondWithJSON(w, http.StatusOK, zone)
+}
+
+func (h *Handler) CreateZone(w http.ResponseWriter, r *http.Request) {
+	var req ZoneRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.respondWithError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.Nom == "" {
+		h.respondWithError(w, http.StatusBadRequest, "nom is required")
+		return
+	}
+
+	z := &Zone{
+		Nom:         req.Nom,
+		Description: req.Description,
+		Statut:      req.Statut,
+	}
+
+	res, err := h.service.CreateZone(r.Context(), z)
+	if err != nil {
+		h.log.Error("failed to create zone", zap.Error(err))
+		h.respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	h.audit.Log(r.Context(), r, "create_zone", "zone", res.ID, "success", map[string]interface{}{"nom": res.Nom})
+	h.respondWithJSON(w, http.StatusCreated, res)
+}
+
+func (h *Handler) UpdateZone(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if id == "" || !validation.IsUUID(id) {
+		h.respondWithError(w, http.StatusBadRequest, "invalid zone ID format")
+		return
+	}
+
+	var req ZoneRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.respondWithError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.Nom == "" {
+		h.respondWithError(w, http.StatusBadRequest, "nom is required")
+		return
+	}
+
+	z := &Zone{
+		Nom:         req.Nom,
+		Description: req.Description,
+		Statut:      req.Statut,
+	}
+
+	res, err := h.service.UpdateZone(r.Context(), id, z)
+	if err != nil {
+		h.log.Error("failed to update zone", zap.String("id", id), zap.Error(err))
+		h.respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	h.audit.Log(r.Context(), r, "update_zone", "zone", id, "success", map[string]interface{}{"nom": res.Nom})
+	h.respondWithJSON(w, http.StatusOK, res)
+}
+
+func (h *Handler) DeleteZone(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if id == "" || !validation.IsUUID(id) {
+		h.respondWithError(w, http.StatusBadRequest, "invalid zone ID format")
+		return
+	}
+
+	err := h.service.DeleteZone(r.Context(), id)
+	if err != nil {
+		h.log.Error("failed to delete zone", zap.String("id", id), zap.Error(err))
+		h.respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	h.audit.Log(r.Context(), r, "delete_zone", "zone", id, "success", nil)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) GetSensorByID(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if id == "" || !validation.IsUUID(id) {
+		h.respondWithError(w, http.StatusBadRequest, "invalid sensor ID format")
+		return
+	}
+
+	sensor, err := h.service.GetSensorByID(r.Context(), id)
+	if err != nil {
+		h.respondWithError(w, http.StatusNotFound, "sensor not found")
+		return
+	}
+
+	h.respondWithJSON(w, http.StatusOK, sensor)
+}
+
+func (h *Handler) CreateSensor(w http.ResponseWriter, r *http.Request) {
+	var req SensorRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.respondWithError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.Nom == "" || req.Type == "" || req.ZoneID == "" || !validation.IsUUID(req.ZoneID) {
+		h.respondWithError(w, http.StatusBadRequest, "valid name, type, and zone_id are required")
+		return
+	}
+
+	c := &Capteur{
+		ZoneID: req.ZoneID,
+		Nom:    req.Nom,
+		Type:   req.Type,
+		Statut: req.Statut,
+	}
+
+	res, err := h.service.CreateSensor(r.Context(), c)
+	if err != nil {
+		h.log.Error("failed to create sensor", zap.Error(err))
+		h.respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	h.audit.Log(r.Context(), r, "create_sensor", "sensor", res.ID, "success", map[string]interface{}{"nom": res.Nom})
+	h.respondWithJSON(w, http.StatusCreated, res)
+}
+
+func (h *Handler) UpdateSensor(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if id == "" || !validation.IsUUID(id) {
+		h.respondWithError(w, http.StatusBadRequest, "invalid sensor ID format")
+		return
+	}
+
+	var req SensorRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.respondWithError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.Nom == "" || req.Type == "" || req.ZoneID == "" || !validation.IsUUID(req.ZoneID) {
+		h.respondWithError(w, http.StatusBadRequest, "valid name, type, and zone_id are required")
+		return
+	}
+
+	c := &Capteur{
+		ZoneID: req.ZoneID,
+		Nom:    req.Nom,
+		Type:   req.Type,
+		Statut: req.Statut,
+	}
+
+	res, err := h.service.UpdateSensor(r.Context(), id, c)
+	if err != nil {
+		h.log.Error("failed to update sensor", zap.String("id", id), zap.Error(err))
+		h.respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	h.audit.Log(r.Context(), r, "update_sensor", "sensor", id, "success", map[string]interface{}{"nom": res.Nom})
+	h.respondWithJSON(w, http.StatusOK, res)
+}
+
+func (h *Handler) DeleteSensor(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if id == "" || !validation.IsUUID(id) {
+		h.respondWithError(w, http.StatusBadRequest, "invalid sensor ID format")
+		return
+	}
+
+	err := h.service.DeleteSensor(r.Context(), id)
+	if err != nil {
+		h.log.Error("failed to delete sensor", zap.String("id", id), zap.Error(err))
+		h.respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	h.audit.Log(r.Context(), r, "delete_sensor", "sensor", id, "success", nil)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) ListAllAlarms(w http.ResponseWriter, r *http.Request) {
+	alarms, err := h.service.ListAllAlarms(r.Context())
+	if err != nil {
+		h.log.Error("failed to list all alarms", zap.Error(err))
+		h.respondWithError(w, http.StatusInternalServerError, "failed to list alarms")
+		return
+	}
+	h.respondWithJSON(w, http.StatusOK, alarms)
+}
+

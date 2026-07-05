@@ -2,9 +2,12 @@ package audit
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -14,8 +17,23 @@ import (
 	"wardis-server/internal/auth"
 )
 
+type AuditEntry struct {
+	ID         string                 `json:"id"`
+	UserID     *string                `json:"user_id"`
+	UserEmail  string                 `json:"user_email"`
+	Action     string                 `json:"action"`
+	Resource   string                 `json:"resource"`
+	ResourceID *string                `json:"resource_id"`
+	Status     string                 `json:"status"`
+	Details    map[string]interface{} `json:"details"`
+	IPAddress  string                 `json:"ip_address"`
+	CreatedAt  time.Time              `json:"created_at"`
+}
+
 type AuditLogger interface {
 	Log(ctx context.Context, r *http.Request, action string, resource string, resourceID string, status string, details map[string]interface{})
+	List(ctx context.Context, email, action, resource, status string, startTime, endTime *time.Time, limit, offset int) ([]AuditEntry, int, error)
+	ListHandler(w http.ResponseWriter, r *http.Request)
 }
 
 type auditLogger struct {
@@ -101,6 +119,176 @@ func (a *auditLogger) Log(ctx context.Context, r *http.Request, action string, r
 	}
 }
 
+func (a *auditLogger) List(ctx context.Context, email, action, resource, status string, startTime, endTime *time.Time, limit, offset int) ([]AuditEntry, int, error) {
+	var conditions []string
+	var args []interface{}
+	argCount := 1
+
+	if email != "" {
+		conditions = append(conditions, fmt.Sprintf("user_email ILIKE $%d", argCount))
+		args = append(args, "%"+email+"%")
+		argCount++
+	}
+	if action != "" {
+		conditions = append(conditions, fmt.Sprintf("action = $%d", argCount))
+		args = append(args, action)
+		argCount++
+	}
+	if resource != "" {
+		conditions = append(conditions, fmt.Sprintf("resource = $%d", argCount))
+		args = append(args, resource)
+		argCount++
+	}
+	if status != "" {
+		conditions = append(conditions, fmt.Sprintf("status = $%d", argCount))
+		args = append(args, status)
+		argCount++
+	}
+	if startTime != nil {
+		conditions = append(conditions, fmt.Sprintf("created_at >= $%d", argCount))
+		args = append(args, *startTime)
+		argCount++
+	}
+	if endTime != nil {
+		conditions = append(conditions, fmt.Sprintf("created_at <= $%d", argCount))
+		args = append(args, *endTime)
+		argCount++
+	}
+
+	whereClause := ""
+	if len(conditions) > 0 {
+		whereClause = "WHERE " + strings.Join(conditions, " AND ")
+	}
+
+	// Get total count
+	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM audit_logs %s", whereClause)
+	var total int
+	err := a.db.QueryRow(ctx, countQuery, args...).Scan(&total)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to count audit logs: %w", err)
+	}
+
+	// Get records
+	query := fmt.Sprintf(`
+		SELECT id, user_id, user_email, action, resource, resource_id, status, details, ip_address, created_at
+		FROM audit_logs
+		%s
+		ORDER BY created_at DESC
+		LIMIT $%d OFFSET $%d`, whereClause, argCount, argCount+1)
+
+	argsWithLimit := append(args, limit, offset)
+	rows, err := a.db.Query(ctx, query, argsWithLimit...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to query audit logs: %w", err)
+	}
+	defer rows.Close()
+
+	var entries []AuditEntry
+	for rows.Next() {
+		var entry AuditEntry
+		var userID sql.NullString
+		var resourceID sql.NullString
+		var detailsJSON []byte
+
+		err := rows.Scan(
+			&entry.ID,
+			&userID,
+			&entry.UserEmail,
+			&entry.Action,
+			&entry.Resource,
+			&resourceID,
+			&entry.Status,
+			&detailsJSON,
+			&entry.IPAddress,
+			&entry.CreatedAt,
+		)
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to scan audit entry row: %w", err)
+		}
+
+		if userID.Valid {
+			entry.UserID = &userID.String
+		}
+		if resourceID.Valid {
+			entry.ResourceID = &resourceID.String
+		}
+
+		if len(detailsJSON) > 0 {
+			_ = json.Unmarshal(detailsJSON, &entry.Details)
+		}
+		if entry.Details == nil {
+			entry.Details = make(map[string]interface{})
+		}
+
+		entries = append(entries, entry)
+	}
+
+	return entries, total, nil
+}
+
+func (a *auditLogger) ListHandler(w http.ResponseWriter, r *http.Request) {
+	email := r.URL.Query().Get("email")
+	action := r.URL.Query().Get("action")
+	resource := r.URL.Query().Get("resource")
+	status := r.URL.Query().Get("status")
+	startTimeStr := r.URL.Query().Get("start_time")
+	endTimeStr := r.URL.Query().Get("end_time")
+
+	var startTime *time.Time
+	if startTimeStr != "" {
+		tVal, err := time.Parse(time.RFC3339, startTimeStr)
+		if err == nil {
+			startTime = &tVal
+		}
+	}
+
+	var endTime *time.Time
+	if endTimeStr != "" {
+		tVal, err := time.Parse(time.RFC3339, endTimeStr)
+		if err == nil {
+			endTime = &tVal
+		}
+	}
+
+	limit := 50
+	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 500 {
+			limit = l
+		}
+	}
+
+	offset := 0
+	if offsetStr := r.URL.Query().Get("offset"); offsetStr != "" {
+		if o, err := strconv.Atoi(offsetStr); err == nil && o >= 0 {
+			offset = o
+		}
+	}
+
+	entries, total, err := a.List(r.Context(), email, action, resource, status, startTime, endTime, limit, offset)
+	if err != nil {
+		a.log.Error("failed to list audit logs", zap.Error(err))
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(`{"error": "failed to query audit logs"}`))
+		return
+	}
+
+	resp := map[string]interface{}{
+		"logs":  entries,
+		"total": total,
+	}
+
+	responseJSON, err := json.Marshal(resp)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write(responseJSON)
+}
+
 // MockAuditLogger is a mock of the AuditLogger interface for unit testing
 type MockAuditLogger struct {
 	Logs []MockEntry
@@ -126,4 +314,11 @@ func (m *MockAuditLogger) Log(ctx context.Context, r *http.Request, action strin
 		Status:     status,
 		UserEmail:  userEmail,
 	})
+}
+
+func (m *MockAuditLogger) List(ctx context.Context, email, action, resource, status string, startTime, endTime *time.Time, limit, offset int) ([]AuditEntry, int, error) {
+	return nil, 0, nil
+}
+
+func (m *MockAuditLogger) ListHandler(w http.ResponseWriter, r *http.Request) {
 }

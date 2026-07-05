@@ -70,8 +70,28 @@ func (e *exportMockRepository) GetLocalRecordingsOlderThan(ctx context.Context, 
 	return nil, nil
 }
 
+func (e *exportMockRepository) GetAllRecordingsOlderThan(ctx context.Context, threshold time.Time) ([]video.VideoRecording, error) {
+	return nil, nil
+}
+
 func (e *exportMockRepository) UpdateRecordingStorageType(ctx context.Context, id string, storageType string, filepath string) error {
 	return nil
+}
+
+func (e *exportMockRepository) CreateBookmark(ctx context.Context, b *video.Bookmark) (*video.Bookmark, error) {
+	return b, nil
+}
+func (e *exportMockRepository) UpdateBookmark(ctx context.Context, id string, name, notes string) error {
+	return nil
+}
+func (e *exportMockRepository) DeleteBookmark(ctx context.Context, id string) error {
+	return nil
+}
+func (e *exportMockRepository) ListBookmarks(ctx context.Context, cameraID string) ([]video.Bookmark, error) {
+	return nil, nil
+}
+func (e *exportMockRepository) GetBookmarkByID(ctx context.Context, id string) (*video.Bookmark, error) {
+	return nil, nil
 }
 
 type exportMockAuditLogger struct {
@@ -87,24 +107,74 @@ type mockAuthService struct {
 	validateError  error
 }
 
-func (m *mockAuthService) Login(ctx context.Context, email, password string) (*auth.LoginResponse, error) {
+func (m *mockAuthService) Login(ctx context.Context, email, password, ip, userAgent string) (*auth.LoginResponse, error) {
 	return nil, nil
 }
-
+func (m *mockAuthService) ValidateMfa(ctx context.Context, mfaToken, code, ip, userAgent string) (*auth.LoginResponse, error) {
+	return nil, nil
+}
 func (m *mockAuthService) ValidateToken(tokenStr string) (*auth.Claims, error) {
 	return m.validateClaims, m.validateError
 }
-
 func (m *mockAuthService) HashPassword(password string) (string, error) {
 	return "", nil
 }
-
 func (m *mockAuthService) GetUserByID(ctx context.Context, id string) (*auth.User, error) {
 	return nil, nil
 }
-
 func (m *mockAuthService) CheckEntityPermission(ctx context.Context, userID string, permissionName string, entityType string, entityID string) (bool, error) {
 	return true, nil
+}
+func (m *mockAuthService) UpdatePassword(ctx context.Context, id string, currentPassword, newPassword string) error {
+	return nil
+}
+func (m *mockAuthService) ListUsers(ctx context.Context) ([]auth.User, error) {
+	return nil, nil
+}
+func (m *mockAuthService) CreateUser(ctx context.Context, email, password, roleName string) (*auth.User, error) {
+	return nil, nil
+}
+func (m *mockAuthService) DeleteUser(ctx context.Context, id string) error {
+	return nil
+}
+func (m *mockAuthService) ListRoles(ctx context.Context) ([]auth.Role, error) {
+	return nil, nil
+}
+func (m *mockAuthService) ListPermissions(ctx context.Context) ([]auth.Permission, error) {
+	return nil, nil
+}
+func (m *mockAuthService) GetEntityPermissionsForUser(ctx context.Context, userID string) ([]auth.EntityPermission, error) {
+	return nil, nil
+}
+func (m *mockAuthService) SaveEntityPermissions(ctx context.Context, userID string, entityPermissions []auth.EntityPermission) error {
+	return nil
+}
+func (m *mockAuthService) SetupMfa(ctx context.Context, userID string) (*auth.MfaSetupResponse, error) {
+	return nil, nil
+}
+func (m *mockAuthService) EnableMfa(ctx context.Context, userID, code string) error {
+	return nil
+}
+func (m *mockAuthService) DisableMfa(ctx context.Context, userID string) error {
+	return nil
+}
+func (m *mockAuthService) CreateRole(ctx context.Context, name, description string, permissions []string) (*auth.Role, error) {
+	return nil, nil
+}
+func (m *mockAuthService) UpdateRole(ctx context.Context, roleID int, description string, permissions []string) error {
+	return nil
+}
+func (m *mockAuthService) DeleteRole(ctx context.Context, roleID int) error {
+	return nil
+}
+func (m *mockAuthService) ListActiveSessions(ctx context.Context) ([]auth.Session, error) {
+	return nil, nil
+}
+func (m *mockAuthService) ListUserActiveSessions(ctx context.Context, userID string) ([]auth.Session, error) {
+	return nil, nil
+}
+func (m *mockAuthService) RevokeSession(ctx context.Context, sessionID string) error {
+	return nil
 }
 
 func TestExportVideoService(t *testing.T) {

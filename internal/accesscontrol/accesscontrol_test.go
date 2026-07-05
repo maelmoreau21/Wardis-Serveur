@@ -128,6 +128,31 @@ func (m *mockRepository) DeleteCardholder(ctx context.Context, id string) error 
 	return nil
 }
 
+func (m *mockRepository) CreateDoor(ctx context.Context, d *accesscontrol.Door) (*accesscontrol.Door, error) {
+	return d, nil
+}
+func (m *mockRepository) UpdateDoor(ctx context.Context, id string, d *accesscontrol.Door) (*accesscontrol.Door, error) {
+	return d, nil
+}
+func (m *mockRepository) DeleteDoor(ctx context.Context, id string) error {
+	return nil
+}
+func (m *mockRepository) ListSites(ctx context.Context) ([]accesscontrol.Site, error) {
+	return nil, nil
+}
+func (m *mockRepository) GetSiteByID(ctx context.Context, id string) (*accesscontrol.Site, error) {
+	return nil, nil
+}
+func (m *mockRepository) CreateSite(ctx context.Context, s *accesscontrol.Site) (*accesscontrol.Site, error) {
+	return s, nil
+}
+func (m *mockRepository) UpdateSite(ctx context.Context, id string, s *accesscontrol.Site) (*accesscontrol.Site, error) {
+	return s, nil
+}
+func (m *mockRepository) DeleteSite(ctx context.Context, id string) error {
+	return nil
+}
+
 func TestAccessControlService(t *testing.T) {
 	ctx := context.Background()
 	logger := zap.NewNop()

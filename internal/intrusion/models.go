@@ -40,3 +40,16 @@ type HistoriqueAlarme struct {
 	Details   *string   `json:"details,omitempty"`
 	CreeLe    time.Time `json:"cree_le"`
 }
+
+type ZoneRequest struct {
+	Nom         string  `json:"nom"`
+	Description *string `json:"description,omitempty"`
+	Statut      string  `json:"statut"`
+}
+
+type SensorRequest struct {
+	ZoneID string `json:"zone_id"`
+	Nom    string `json:"nom"`
+	Type   string `json:"type"`
+	Statut string `json:"statut"`
+}

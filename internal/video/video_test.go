@@ -72,8 +72,28 @@ func (m *mockRepository) GetLocalRecordingsOlderThan(ctx context.Context, thresh
 	return nil, nil
 }
 
+func (m *mockRepository) GetAllRecordingsOlderThan(ctx context.Context, threshold time.Time) ([]video.VideoRecording, error) {
+	return nil, nil
+}
+
 func (m *mockRepository) UpdateRecordingStorageType(ctx context.Context, id string, storageType string, filepath string) error {
 	return nil
+}
+
+func (m *mockRepository) CreateBookmark(ctx context.Context, b *video.Bookmark) (*video.Bookmark, error) {
+	return b, nil
+}
+func (m *mockRepository) UpdateBookmark(ctx context.Context, id string, name, notes string) error {
+	return nil
+}
+func (m *mockRepository) DeleteBookmark(ctx context.Context, id string) error {
+	return nil
+}
+func (m *mockRepository) ListBookmarks(ctx context.Context, cameraID string) ([]video.Bookmark, error) {
+	return nil, nil
+}
+func (m *mockRepository) GetBookmarkByID(ctx context.Context, id string) (*video.Bookmark, error) {
+	return nil, nil
 }
 
 type mockMediaMtxClient struct {
@@ -105,6 +125,10 @@ type mockEventPublisher struct {
 
 func (m *mockEventPublisher) PublishCameraDiscovered(ctx context.Context, payload interface{}) error {
 	m.discoveredCalls = append(m.discoveredCalls, payload)
+	return nil
+}
+
+func (m *mockEventPublisher) PublishEvent(ctx context.Context, topic string, payload interface{}) error {
 	return nil
 }
 
