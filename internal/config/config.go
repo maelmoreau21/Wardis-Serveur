@@ -28,6 +28,11 @@ type Config struct {
 	VideoTieringInterval time.Duration `mapstructure:"VIDEO_TIERING_INTERVAL"`
 	VideoTieringAgeDays  int           `mapstructure:"VIDEO_TIERING_AGE_DAYS"`
 	RecordingsLocalDir   string        `mapstructure:"RECORDINGS_LOCAL_DIR"`
+
+	// Initial admin account — set via ADMIN_USERNAME / ADMIN_PASSWORD env vars.
+	// In production, always override these; do NOT rely on the defaults.
+	AdminUsername string `mapstructure:"ADMIN_USERNAME"`
+	AdminPassword string `mapstructure:"ADMIN_PASSWORD"`
 }
 
 func Load() (*Config, error) {
@@ -50,6 +55,10 @@ func Load() (*Config, error) {
 	viper.SetDefault("VIDEO_TIERING_INTERVAL", 1*time.Hour)
 	viper.SetDefault("VIDEO_TIERING_AGE_DAYS", 7)
 	viper.SetDefault("RECORDINGS_LOCAL_DIR", "./data/recordings")
+
+	// Default admin credentials — override in production via env vars
+	viper.SetDefault("ADMIN_USERNAME", "root")
+	viper.SetDefault("ADMIN_PASSWORD", "root")
 
 	// Read environment variables
 	viper.AutomaticEnv()

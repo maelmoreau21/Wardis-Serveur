@@ -195,8 +195,8 @@ func main() {
 	}
 	defer videoService.Close()
 
-	// 6. Seed default Admin User if it doesn't exist
-	seedDefaultAdmin(ctx, authService, authRepo, log)
+	// 6. Bootstrap initial admin account (only when it doesn't exist yet)
+	seedDefaultAdmin(ctx, cfg, authService, authRepo, log)
 
 	// 6b. Sync active cameras with MediaMTX
 	if err := videoService.SyncWithMediaMTX(ctx); err != nil {
@@ -451,34 +451,41 @@ func runMigrations(databaseURL string) error {
 	return nil
 }
 
-func seedDefaultAdmin(ctx context.Context, authService auth.Service, repo auth.Repository, log *zap.Logger) {
-	adminEmail := "root"
-	adminPassword := "root"
+// seedDefaultAdmin creates the initial administrator account on first boot.
+// The username and password are read from the ADMIN_USERNAME / ADMIN_PASSWORD
+// environment variables (or their defaults for local development).
+// The function is idempotent: if the account already exists it does nothing.
+func seedDefaultAdmin(ctx context.Context, cfg *config.Config, authService auth.Service, repo auth.Repository, log *zap.Logger) {
+	adminUsername := cfg.AdminUsername
+	adminPassword := cfg.AdminPassword
 
-	_, err := repo.GetUserByEmail(ctx, adminEmail)
+	if adminUsername == "" || adminPassword == "" {
+		log.Warn("ADMIN_USERNAME or ADMIN_PASSWORD is not set — skipping initial admin bootstrap")
+		return
+	}
+
+	_, err := repo.GetUserByEmail(ctx, adminUsername)
 	if err == nil {
-		log.Info("Default admin user already exists")
+		log.Info("Initial admin account already exists, skipping bootstrap", zap.String("username", adminUsername))
 		return
 	}
 
 	if !errors.Is(err, auth.ErrUserNotFound) {
-		log.Error("Failed to check if default admin exists", zap.Error(err))
+		log.Error("Failed to check if initial admin exists", zap.Error(err))
 		return
 	}
 
-	// Hash password
 	hashedPassword, err := authService.HashPassword(adminPassword)
 	if err != nil {
 		log.Error("Failed to hash admin password", zap.Error(err))
 		return
 	}
 
-	// Create user with 'admin' role
-	adminUser, err := repo.CreateUser(ctx, adminEmail, hashedPassword, "admin")
+	adminUser, err := repo.CreateUser(ctx, adminUsername, hashedPassword, "admin")
 	if err != nil {
-		log.Error("Failed to seed default admin user", zap.Error(err))
+		log.Error("Failed to create initial admin account", zap.Error(err))
 		return
 	}
 
-	log.Info("Successfully seeded default admin user", zap.String("id", adminUser.ID), zap.String("email", adminEmail))
+	log.Info("Initial admin account created", zap.String("id", adminUser.ID), zap.String("username", adminUsername))
 }

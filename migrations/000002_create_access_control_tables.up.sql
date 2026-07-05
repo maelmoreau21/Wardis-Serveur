@@ -50,13 +50,4 @@ CREATE TABLE IF NOT EXISTS access_logs (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- Seed default site and doors
-INSERT INTO sites (id, name, description)
-VALUES ('a0000000-0000-0000-0000-000000000001', 'HQ Paris', 'Paris Headquarters')
-ON CONFLICT (id) DO NOTHING;
-
-INSERT INTO doors (id, site_id, name, description, status)
-VALUES 
-('d0000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000001', 'Main Entrance', 'Main street entrance door', 'closed'),
-('d0000000-0000-0000-0000-000000000002', 'a0000000-0000-0000-0000-000000000001', 'Server Room', 'IT Server room secure door', 'closed')
-ON CONFLICT (id) DO NOTHING;
+-- No demo data: sites and doors are created via the admin UI or API.
